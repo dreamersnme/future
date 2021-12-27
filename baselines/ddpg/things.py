@@ -36,89 +36,176 @@ def check_NAN(item, see = []):
 
 
 import matplotlib.pyplot as plt
+import seaborn as sns
+
+PLOTS={}
+
+class BoxPlot:
+    def __init__(self, name, ax, labels):
+        self.ax = ax
+        self.labels = labels
+        PLOTS[name] = self
+
+    def update(self, box_plot_data):
+        self.ax.cla()
+        self.ax.tick_params(axis='y', labelsize=6)
+        self.ax.grid(True, axis='y', alpha=0.3, linestyle='--')
+        sample_sizes = [len(s) for s in box_plot_data ]
+        widths = [0.9 * s / max(sample_sizes) for s in sample_sizes]
+        self.ax.boxplot(box_plot_data, whis=2, patch_artist=True,labels=self.labels, widths = widths, flierprops={'marker': '+'})
+
+#
+# class BoxPlot:
+#     def __init__(self, name, ax, labels):
+#         self.ax = ax
+#         self.labels = labels
+#         PLOTS[name] = self
+#
+#     def update(self, box_plot_data):
+#         self.ax.cla()
+#         data = pd.DataFrame(dict(zip(self.labels, box_plot_data)))
+#         sns.violinplot(y='Asset',
+#               data=box_plot_data,
+#               scale='count', split=True,
+#               palette='seismic',
+#               inner='quartile',ax=self.ax)
+
+
+
+
+class APlot():
+
+    def __init__(self, name, ax, line_def, legend =True):
+        self.ax = ax
+        PLOTS[name] = self
+        self.lines =[]
+        for l in line_def:
+            line,  = ax.plot([], [], **l)
+            self.lines.append(line)
+        if legend: ax.legend()
+        self.ax.tick_params(axis='y', labelsize=6)
+
+    def update(self, l_idx, x, y):
+        line = self.lines[l_idx]
+        line.set_data(x, y)
+
+    def getLims(self):
+        xlim = (1e6, -1e6)
+        ylim = (1e6, -1e6)
+        for line in self.lines:
+            xx, yy = line.get_data()
+            xlim = (min(xx[0], xlim[0]), max(xx[-1], xlim[1]))
+            ylim = (min(min(yy), ylim[0]), max(max(yy), ylim[1]))
+
+        xpad = (xlim[1] - xlim[0]) * 0.05
+        ypad = (ylim[1] - ylim[0]) * 0.1
+        xlim = (xlim[0]- xpad, xlim[1]+xpad)
+        ylim = (ylim[0]- ypad, ylim[1] +ypad)
+        return xlim, ylim
+
+    def refresh(self):
+
+        x, y = self.getLims()
+        self.ax.set_xlim(x[0], x[1])
+        self.ax.set_ylim(y[0], y[1])
+
+
 
 class ResultPlot:
     def __init__(self):
         self.rwd=[]
         self.asset =[]
+        self.risk =[]
         plt.ion()
-        self.fig = plt.figure(figsize=(5, 8))
+        self.fig = plt.figure(figsize=(8, 9))
         self.init_fig()
-        plt.legend()
 
     def init_fig(self):
-        ax1 = self.fig.add_subplot(211)
-        ax2 = self.fig.add_subplot(413)
-        ax3 = self.fig.add_subplot(414)
+        lines =[
+            {'color':'g', 'label':'Account', 'alpha':0.8},
+            {'color': 'r', 'label': 'Unrealized', 'alpha': 0.8},
+            {'color': 'b', 'label': 'Total', 'alpha': 0.6},
+            {'color': 'gray', 'label': 'Reward', 'alpha': 0.6}]
+        APlot("all",  plt.subplot2grid((5,2), (0, 0), colspan=2, rowspan=2), lines)
 
 
-        line11, = ax1.plot([], [], 'g', label='Account cash balance', alpha=0.8)
-        line12, = ax1.plot([], [], 'r', label='Unrealized value', alpha=0.8)
-        line13, = ax1.plot([], [], 'b', label='Total asset', alpha=0.6)
-        line14, = ax1.plot([], [], 'gray', label='Reward', alpha=0.6)
-        line21, = ax2.plot([], [], label='Reward')
-        line22, = ax2.plot([], [], label='Asset')
-        line31, = ax3.plot([], [], label='Position')
+        lines = [{'label': 'Position', 'lw':0.5}]
+        pp=APlot("pos",  plt.subplot2grid((5,2), (2, 0), colspan=2), lines, legend=False)
+        lines = [{'color':'r', 'label': 'Unit', 'lw':0.5}]
+        APlot("unit", pp.ax.twinx(), lines)
 
-        ax1.legend()
-        ax2.legend()
-        ax3.legend()
-        self.plots = {ax1:[line11, line12, line13, line14],
-                    ax2:[line21, line22],
-                    ax3:[line31]}
-        self.axes = [ax1, ax2, ax3]
+        # lines =[{'label':'Reward'}, {'label':'Asset'} ]
+        lines = [{'label': 'Reward'}]
+        pp = APlot("rwd", plt.subplot2grid((5, 2), (3, 0)), lines, legend=False)
+        lines = [{'label': 'Asset', 'color':'orange'}]
+        APlot("ass", pp.ax.twinx(),  lines)
 
-    def _update_data(self, a_idx, l_idx, x, y):
+        lines = [{'label': 'Reward'}]
+        pp=APlot("rwd_d", plt.subplot2grid((5, 2), (3, 1)), lines)
+        lines = [{'label': 'Asset', 'color':'orange'}]
+        APlot("ass_d", pp.ax.twinx(), lines, legend=False)
+
+        BoxPlot("posneg", plt.subplot2grid((5, 2), (4, 0)), ['Pos', 'Neg'])
+
+        lines = [{'label': 'Risk', 'color': 'orange'}]
+        APlot("risk_d", plt.subplot2grid((5, 2), (4, 1)), lines)
+
+        self.fig.tight_layout()
+
+    def _update_line(self, name, l_idx, x, y):
         if (isinstance(y, pd.Series)): y = y.tolist()
-        ax = self.axes[a_idx]
-        line = self.plots[ax][l_idx]
-        x = range(0, len(x))
-        line.set_data(x, y)
+        x = range(1, len(x)+1)
+
+        PLOTS[name].update(l_idx, x, y)
+
+    def _update_box(self, name, data):
+        PLOTS[name].update(data)
+
 
     def refresh(self):
-
-        def lim(lines):
-            xlim = (0, 0)
-            ylim = (0, 0)
-            for line in lines:
-                xx, yy = line.get_data()
-
-                xlim = (min(xx[0], xlim[0]), max(xx[-1], xlim[1]))
-                ylim = (min(min(yy), ylim[0]), max(max(yy), ylim[1]))
-
-            xpad = max(1, (xlim[1] - xlim[0]) * 0.1)
-            ypad = max(1, (ylim[1] - ylim[0]) * 0.1)
-            xlim = (xlim[0]- xpad, xlim[1]+xpad)
-            ylim = (ylim[0] -ypad, ylim[1] +ypad)
-            return xlim, ylim
-
-        for ax in self.axes:
-            xlim, ylim = lim(self.plots[ax])
-            ax.set_xlim(xlim[0], xlim[1])
-            ax.set_ylim(ylim[0], ylim[1])
+        for key, ax in PLOTS.items():
+            if isinstance(ax, APlot): ax.refresh()
 
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
         time.sleep(0.1)
+        
+    def update(self, iteration, info):
+        trading_book = info['log']
+        risk = info['risk']
+        pos = info['pos']
+        neg = info['neg']
+        self.rwd.append(trading_book["CumReward"][-1])
+        self.asset.append(trading_book["Total asset"][-1])
+        self.risk.append(risk)
 
-    def update(self, iteration, trading_book):
 
-        rwd = trading_book["CumReward"][-1]
-        asset = trading_book["Total asset"][-1]
-        self.rwd.append(rwd)
-        self.asset.append(asset)
-        self.axes[0].set_title('Train iteration {}'.format(iteration), fontsize=11)
-        self._update_data(0,0,trading_book.index, trading_book["Cash balance"])
-        self._update_data(0,1,trading_book.index, trading_book["Unrealized value"])
-        self._update_data(0,2,trading_book.index, trading_book["Total asset"])
-        self._update_data(0,3,trading_book.index, trading_book["CumReward"])
-        self._update_data(1,0,range(0, iteration),  self.rwd)
-        self._update_data(1,1,range(0, iteration),  self.asset)
-        self._update_data(2,0,trading_book.index,  trading_book["Position"])
+
+        self.fig.suptitle('Train iteration {}'.format(iteration), fontsize=11)
+        self._update_line("all",0,trading_book.index, trading_book["Cash balance"])
+        self._update_line("all",1,trading_book.index, trading_book["Unrealized value"])
+        self._update_line("all",2,trading_book.index, trading_book["Total asset"])
+        self._update_line("all",3,trading_book.index, trading_book["CumReward"])
+
+        self._update_line('pos', 0, trading_book.index, trading_book["Position"])
+        self._update_line("unit", 0, trading_book.index, trading_book["Unit"])
+
+        iter_range = range(0, iteration)
+        self._update_line('rwd',0, iter_range,  self.rwd)
+        self._update_line('ass',0, iter_range,  self.asset)
+
+        detail_cnt = min(20, iteration)
+        detail_start = iteration-detail_cnt
+        detail_range = range(detail_start, iteration)
+        self._update_line('rwd_d', 0, detail_range, self.rwd[-detail_cnt:])
+        self._update_line('ass_d', 0, detail_range, self.asset[-detail_cnt:])
+        self._update_line('risk_d', 0, detail_range, self.risk[-detail_cnt:])
+
+
+        self._update_box('posneg', [pos, neg])
+
         self.refresh()
         self.fig.savefig('./train_result/fig/evolution_train{}.png'.format(iteration))
-
-
 
 #
 #     # def update(self, iteration, trading_book):

@@ -150,7 +150,7 @@ def learn(network, env,
 
                 if done[0]:
                     EPOCH_DONE = True
-                    result_plot.update(epoch+1, info[0]['log'])
+                    result_plot.update(epoch+1, info[0])
                     # Episode done.
                     episode_rewards_history.append(episode_reward)
                     agent.reset()

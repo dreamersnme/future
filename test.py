@@ -1,35 +1,25 @@
-import numpy as np
 import time
+
+import numpy as np
 import matplotlib.pyplot as plt
-
-
-
-x = np.linspace(0, 10, 100)
-y = np.cos(x)
+import matplotlib.animation as animation
 
 plt.ion()
+fig = plt.figure(figsize=(8, 9))
+# line, = ax.boxplot(np.arange(10))  <-- not needed it seems
+ax3 = plt.subplot(211)
+ax3.plot([2,4,3,4,3,4])
 
+ax = plt.subplot(212)
 
-figure = plt.figure(figsize=(5, 8))
-ax = figure.add_subplot(211)
-line1, = ax.plot([], [],'g', label='Account cash balance', alpha=0.8)
+ax.boxplot([[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,15], [1,4,5], [6,7]], flierprops={'marker': '+', 'markerfacecolor':'r'})
 
-plt.title("Dynamic Plot of sinx", fontsize=25)
+fig.canvas.draw()
+fig.canvas.flush_events()
 
-plt.xlabel("X", fontsize=18)
-plt.ylabel("sinX", fontsize=18)
-plt.legend()
-
-
-for p in range(100):
-    updated_y = np.cos(x - 0.05 * p)
-
-    line1.set_xdata(x)
-    line1.set_ydata(updated_y)
-    ax.set_xlim(min(x), max(x))
-    ax.set_ylim(min(updated_y), max(updated_y))
-
-    figure.canvas.draw()
-
-    figure.canvas.flush_events()
-    time.sleep(0.1)
+time.sleep(3)
+ax.cla()
+ax.boxplot([[6,7], [1,4,5], [1,5]])
+fig.canvas.draw()
+fig.canvas.flush_events()
+time.sleep(3)

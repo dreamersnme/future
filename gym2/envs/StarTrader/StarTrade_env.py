@@ -136,16 +136,22 @@ class StarTradingEnv(gym.Env):
         self.done = False
         self.up_cnt = 0
         self.down_cnt =0
-        self.total_neg = 0
+        self.total_neg = []
+        self.total_pos = []
         self.total_commition = 0
+        self.unit_log =[0]
         self.acc_balance = [STARTING_ACC_BALANCE]
         self.total_asset = self.acc_balance
         self.reward_log = [0]
         self.position = np.zeros((1, NUMBER_OF_STOCKS)).flatten()
         self.position_log = [0]
 
+
         unrealized_pnl = 0.0
         self.unrealized_asset = [unrealized_pnl]
+
+
+
         self.buy_price = np.zeros((1, NUMBER_OF_STOCKS)).flatten()
         self.day = START_TRAIN
 
@@ -247,8 +253,6 @@ class StarTradingEnv(gym.Env):
         print ("@@@@@@@@@@@@@@@@@")
         print ("Iteration", self.iteration - 1)
 
-
-
         # Construct trading book and save to a spreadsheet for analysis
         trading_book = pd.DataFrame (index=self.timeline, columns=["Cash balance", "Unrealized value", "Total asset", "Rewards", "CumReward", "Position"])
         trading_book["Cash balance"] = self.acc_balance
@@ -257,12 +261,16 @@ class StarTradingEnv(gym.Env):
         trading_book["Rewards"] = self.reward_log
         trading_book["CumReward"] = trading_book["Rewards"].cumsum().fillna(0)
         trading_book["Position"]  = self.position_log
+        trading_book["Unit"] = self.unit_log
+
+
         trading_book.to_csv ('./train_result/trading_book_train_{}.csv'.format (self.iteration - 1))
 
         total_reward = trading_book["CumReward"][-1]
         total_asset = trading_book["Total asset"][-1]
+        total_neg = np.sum(self.total_neg)
         print("UP: {}, DOWN: {}, Commition: {}".format(self.up_cnt, self.down_cnt, self.total_commition))
-        print("Acc: {}, Rwd: {}, Neg: {}".format(total_asset, total_reward, self.total_neg))
+        print("Acc: {}, Rwd: {}, Neg: {}".format(total_asset, total_reward,total_neg))
 
         kpi = dp.MathCalc.calc_kpi(trading_book)
         kpi.to_csv('./train_result/kpi_train_{}.csv'.format(self.iteration - 1))
@@ -271,7 +279,9 @@ class StarTradingEnv(gym.Env):
         print("===============================================================================================")
 
 
-        return self.state, self.reward, self.done, {"log": trading_book}
+        risk_log = -1 * total_neg/ np.sum(self.total_pos)
+
+        return self.state, self.reward, self.done, {"log": trading_book, 'risk':risk_log, 'pos': self.total_pos, 'neg': -1*self.total_neg}
 
     def step(self, actions):
         # Episode ends when timestep reaches the last day in feature data
@@ -308,6 +318,7 @@ class StarTradingEnv(gym.Env):
         self.position_log = np.append (self.position_log, position)
 
 
+
         # Update date and skip some date since not every day is trading day
         self.day += timedelta (days=1)
         self.day, self.data = self.skip_day (input_states)
@@ -323,8 +334,9 @@ class StarTradingEnv(gym.Env):
         total_asset_ending = self.state[0] + unrealized_pnl
 
         step_profit = total_asset_ending - total_asset_starting
-        if step_profit <0: self.total_neg += step_profit
-
+        self.unit_log = np.append(self.unit_log, step_profit)
+        if step_profit <0: self.total_neg = np.append(self.total_neg, step_profit)
+        else: self.total_pos = np.append(self.total_pos, step_profit)
 
         # Update account balance statement
         self.acc_balance = np.append (self.acc_balance, self.state[0])
@@ -332,7 +344,6 @@ class StarTradingEnv(gym.Env):
 
         # Update total asset statement
         self.total_asset = np.append (self.total_asset, total_asset_ending)
-
 
 
         # Update timeline
@@ -356,13 +367,15 @@ class StarTradingEnv(gym.Env):
         action = np.array(cur_buy_stat)
         action_power = np.mean(abs(action/ MAX_TRADE))
         profit = (total_asset_ending - total_asset_starting)/ MAX_TRADE
+        risk = self.remain_risk(action_power)
+
+        profit = 1.1 * (profit - risk)
+
         if profit<0:
-            profit = min(profit, -1 * pow(abs(profit), 1.7))
+            profit = min(profit, -1 * pow(abs(profit), 2))
         else:
             profit = max(profit, pow(profit, 1.2))
-
-        risk = self.remain_risk(action_power)
-        return profit - risk + 0.1
+        return profit+0.4
 
 
         # stability_tick = 20
