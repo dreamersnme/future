@@ -219,7 +219,8 @@ class StarTradingEnv(gym.Env):
         return WORLD.loc[date][0]
 
 
-    def __trade(self, pre_price, cur_share, new_share):
+    def __trade(self, pre_price, cur_share, new_share, date=None):
+        # print("P ", self.getprice(date))
         buy_direction, cleaned, left_buy, cleaned_all = self._clean (cur_share, new_share)
         if buy_direction == 0:
             return 0, 0, 0, 0, pre_price
@@ -227,7 +228,7 @@ class StarTradingEnv(gym.Env):
         assert cleaned + left_buy == (new_share - cur_share)
         cost = abs (cleaned + left_buy) * COMMITION
 
-        transacted_price = self.getprice() + (SLIPPAGE * buy_direction)  # 살땐 비싸게, 팔땐 싸게
+        transacted_price = self.getprice(date) + (SLIPPAGE * buy_direction)  # 살땐 비싸게, 팔땐 싸게
 
         if cleaned == 0:  # clean은 하지 않았으므로, 같은 방향의 변동
             assert cur_share + left_buy == new_share
@@ -240,7 +241,7 @@ class StarTradingEnv(gym.Env):
                 buy_price = pre_price # self.buy_price[idx] 안바뀜, 일부청산 이기 때문
             else:  # 모두 청산하여 예전 가격 필요없음. 더 거래시 현재 가격
                 buy_price = transacted_price
-
+        # print("T ", cleaned, realized, cost, left_buy, buy_price)
         return cleaned, realized, cost, left_buy, buy_price
 
 
@@ -251,7 +252,7 @@ class StarTradingEnv(gym.Env):
 
         cleaned, profit, cost, _, buy_price = self.__trade(self.buy_price, cur_share, new_share)
 
-        print(">>>>>>>>>>>>>>",cur_share, new_share, profit-cost )
+        # print(">>>>>>>>>>>>>>",cur_share, new_share, profit-cost )
 
         cleaned = abs(cleaned)
         thresold = abs (cleaned) * COMMITION
@@ -323,6 +324,7 @@ class StarTradingEnv(gym.Env):
     def step_normal(self, action):
 
         pre_price = self.buy_price
+        pre_date = self.day
         # Total asset is account balance + unrealized_pnl
         pre_unrealized_pnl = self.state[1]
         total_asset_starting = self.state[0] + pre_unrealized_pnl
@@ -344,7 +346,7 @@ class StarTradingEnv(gym.Env):
 
         step_profit = total_asset_ending - total_asset_starting
 
-        print(step_profit, unrealized_pnl)
+        # print(step_profit, unrealized_pnl)
 
 
         if step_profit <0: self.total_neg = np.append(self.total_neg, step_profit)
@@ -359,7 +361,7 @@ class StarTradingEnv(gym.Env):
 
 
         # self.reward = self.cal_reward(total_asset_starting, total_asset_ending, cur_buy_stat)
-        self.reward = self.cal_opt_reward (step_profit, pre_unrealized_pnl, pre_price, self.buy_price)
+        self.reward = self.cal_opt_reward (pre_date, step_profit, pre_unrealized_pnl, pre_price, self.buy_price)
 
 
         self.reward_log = np.append (self.reward_log, self.reward)
@@ -368,19 +370,19 @@ class StarTradingEnv(gym.Env):
     def remain_risk(self, action_power):
         return 0.01 * (pow(action_power + 1, 3) -1)
 
-    def get_optimal(self, base_share, base_unreal, base_price, next_price):
+    def get_optimal(self, base_date, base_share, base_unreal, base_price, next_price):
         check_trade = [-MAX_TRADE, 0, MAX_TRADE]
         optimal = self._unrealized_profit (base_share, base_price)
 
         for target in check_trade:
             if base_share == target: continue
-            cleaned, profit, cost, _, buy_price = self.__trade(base_price, base_share, target)
+            cleaned, profit, cost, _, buy_price = self.__trade(base_price, base_share, target, base_date)
             profit_sum = profit - cost
             unreal = self._unrealized_profit (target, next_price)
             profit_sum += unreal
 
-            print ("           >", base_share, target, profit_sum)
-            print(unreal - base_unreal )
+            # print ("           >", base_share, target, profit_sum)
+            # print(unreal - base_unreal )
 
             optimal = max(profit_sum, optimal)
 
@@ -388,12 +390,12 @@ class StarTradingEnv(gym.Env):
 
         return optimal - base_unreal
 
-    def cal_opt_reward (self, profit, pre_unreal, pre_price, next_price):
-        opt = self.get_optimal(self.position_log[-2],pre_unreal, pre_price, next_price)
+    def cal_opt_reward (self, pre_date, profit, pre_unreal, pre_price, next_price):
+        opt = self.get_optimal(pre_date, self.position_log[-2],pre_unreal, pre_price, next_price)
         reward = (profit - opt)  + 1
-        if (profit-0.001 > opt):
-            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-            print(profit, "    ", opt, " >>>>", reward)
+        # if (profit-0.001 > opt):
+            # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        # print(profit, "    ", opt, " >>>>", reward)
         return reward
 
 
