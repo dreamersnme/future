@@ -75,31 +75,39 @@ print ("\n")
 
 print ("Starting to pre-process data for trading environment construction ... ")
 # Data Preprocessing
-dataset = dp.DataRetrieval()
 
 
-
-dow_stocks_train, dow_stocks_test = dataset.get_all()
-dow_stock_volume = dataset.components_df_v[DJI]
-portfolios = dp.Trading(dow_stocks_train, dow_stocks_test, dow_stock_volume.loc[START_TEST:END_TEST])
-input_states = dataset.get_feature_dataframe (DJI)
-
-if len(CONTEXT_DATA):
-    context_df = dataset.get_feature_dataframe (CONTEXT_DATA)
-    input_states = pd.concat([context_df, input_states], axis=1)
-input_states = input_states.dropna()
+PRICE_FILE = './data/ddpg_WORLD.csv'
+INPUT_FILE = './data/ddpg_input_states.csv'
 
 
-input_states.to_csv('./data/ddpg_input_states.csv')
+try:
+    input_states = pd.read_csv(INPUT_FILE, index_col='Date', parse_dates=True)
+    WORLD =  pd.read_csv(PRICE_FILE, index_col='Date', parse_dates=True)
+    print("LOAD PRE_PROCESSED DATA")
+    print(WORLD.head(10))
+except :
+    print ("LOAD FAIL.  PRE_PROCESSing DATA")
+    dataset = dp.DataRetrieval()
+    input_states = dataset.get_feature_dataframe (DJI)
+
+    if len(CONTEXT_DATA):
+        context_df = dataset.get_feature_dataframe (CONTEXT_DATA)
+        input_states = pd.concat([context_df, input_states], axis=1)
+    input_states = input_states.dropna()
+    input_states.to_csv(INPUT_FILE)
+    WORLD = dataset.components_df_o[DJI]
+    WORLD.to_csv(PRICE_FILE)
+
+
 # Without context data
 #input_states = feature_df
 feature_length = len(input_states.columns)
 data_length = len(input_states)
-WORLD = dataset.components_df_o[DJI]
-stock_volume = dataset.components_df_v[DJI]
-WORLD.to_csv('./data/ddpg_WORLD.csv')
+
 COMMITION = 0.2
 SLIPPAGE = 1#1  # 상방 하방
+COST = SLIPPAGE+COMMITION
 
 
 print("Pre-processing and stock selection complete, trading starts now ...")
@@ -125,6 +133,7 @@ class StarTradingEnv(gym.Env):
 
         # [account balance]+[unrealized profit/loss] +[number of features, 36]+[portfolio stock of 5 stocks holdings]
         self.full_feature_length = 2 + feature_length
+        self.share_idx = self.full_feature_length
         print("full length", self.full_feature_length)
         self.observation_space = spaces.Box(low=0, high=np.inf, shape = (self.full_feature_length + NUMBER_OF_STOCKS,))
         self.reset()
@@ -133,6 +142,7 @@ class StarTradingEnv(gym.Env):
         Reset the environment once an episode end.
 
         """
+
         self.done = False
         self.up_cnt = 0
         self.down_cnt =0
@@ -143,29 +153,30 @@ class StarTradingEnv(gym.Env):
         self.acc_balance = [STARTING_ACC_BALANCE]
         self.total_asset = self.acc_balance
         self.reward_log = [0]
-        self.position = np.zeros((1, NUMBER_OF_STOCKS)).flatten()
-        self.position_log = [0]
+        self.position = 0
+        self.position_log = [self.position ]
 
 
         unrealized_pnl = 0.0
         self.unrealized_asset = [unrealized_pnl]
 
-
-
-        self.buy_price = np.zeros((1, NUMBER_OF_STOCKS)).flatten()
+        self.buy_price = 0
         self.day = START_TRAIN
 
-        self.day, self.data = self.skip_day (input_states)
+        self.day, self.data = self.skip_day(input_states, True)
         self.timeline = [self.day]
-        self.state = self.acc_balance + [unrealized_pnl] + self.data.values.tolist() + [0 for i in range(NUMBER_OF_STOCKS)]
+        self.state = self.acc_balance + [unrealized_pnl] + self.data.values.tolist() + [0]
+
         self.iteration += 1
         self.reward = 0
+
 
         return self.state
 
 
-    def skip_day(self, input_st):
+    def skip_day(self, input_st, first=False):
         # Sliding the timeline window day-by-day, skipping the non-trading day as data is not available
+        if not first : self.day += timedelta (days=1)
         wrong_day = True
         add_day = 0
         while wrong_day:
@@ -181,10 +192,9 @@ class StarTradingEnv(gym.Env):
 
     def get_trade_num(self, normed_action, max_trade):
         action = normed_action + 1
-        action = action * ( float(2*MAX_TRADE +1)/ 2.0) - MAX_TRADE
+        action = action * ( float(2*max_trade +1)/ 2.0) - max_trade
         action = math.floor(action)
-        return min(action, MAX_TRADE)
-
+        return min(action, max_trade)
 
     def _clean(self, cur_share, new_share):
 
@@ -204,48 +214,58 @@ class StarTradingEnv(gym.Env):
 
         return direction, cleaned, left, clean_all
 
-    def _trade(self, idx, action):
+    def getprice(self, date=None):
+        if date is None: date = self.day
+        return WORLD.loc[date][0]
 
-        state_idx = idx + self.full_feature_length
-        cur_share = self.state[state_idx]
-        new_share = self.get_trade_num(action ,MAX_TRADE)
 
-        buy_direction, cleaned, left_buy, cleaned_all = self._clean(cur_share, new_share)
-
-        if buy_direction ==0:
-            return cur_share
-
+    def __trade(self, pre_price, cur_share, new_share):
+        buy_direction, cleaned, left_buy, cleaned_all = self._clean (cur_share, new_share)
+        if buy_direction == 0:
+            return 0, 0, 0, 0, pre_price
 
         assert cleaned + left_buy == (new_share - cur_share)
+        cost = abs (cleaned + left_buy) * COMMITION
 
-        commition = abs(cleaned + left_buy) * COMMITION
-        self.state[0] -= commition
-        self.total_commition += commition
+        transacted_price = self.getprice() + (SLIPPAGE * buy_direction)  # 살땐 비싸게, 팔땐 싸게
 
-        previous_price = self.buy_price[idx]
-        transacted_price = WORLD.loc[self.day][idx] + (SLIPPAGE * buy_direction)  # 살땐 비싸게, 팔땐 싸게
+        if cleaned == 0:  # clean은 하지 않았으므로, 같은 방향의 변동
+            assert cur_share + left_buy == new_share
+            buy_price = (abs (cur_share) * pre_price + abs (left_buy) * transacted_price) / abs (new_share)
+            realized = 0
 
-        if cleaned == 0: #clean은 하지 않았으므로, 같은 방향의 변동
-            assert cur_share+left_buy == new_share
-            self.buy_price[idx] = (abs(cur_share) * previous_price +  abs(left_buy)*transacted_price) / abs(new_share)
         else:
-            realized = -cleaned * (transacted_price - previous_price)
-            thresold = abs(cleaned)*COMMITION
-            if realized > thresold:
-                self.up_cnt += abs(cleaned)
-            elif realized < thresold:
-                self.down_cnt += abs(cleaned)
-            else: pass
-
-            self.state[0] += realized #청산이익
-
+            realized = -cleaned * (transacted_price - pre_price)
             if not cleaned_all:
-                pass
-                # self.buy_price[idx] 안바뀜, 일부청산 이기 때문
-            else:# 모두 청산하여 예전 가격 필요없음. 더 거래시 현재 가격
-                self.buy_price[idx] = transacted_price
+                buy_price = pre_price # self.buy_price[idx] 안바뀜, 일부청산 이기 때문
+            else:  # 모두 청산하여 예전 가격 필요없음. 더 거래시 현재 가격
+                buy_price = transacted_price
 
-        self.state[state_idx] = new_share
+        return cleaned, realized, cost, left_buy, buy_price
+
+
+    def _trade(self, action):
+
+        cur_share = self.state[self.share_idx]
+        new_share = self.get_trade_num(action ,MAX_TRADE)
+
+        cleaned, profit, cost, _, buy_price = self.__trade(self.buy_price, cur_share, new_share)
+
+        print(">>>>>>>>>>>>>>",cur_share, new_share, profit-cost )
+
+        cleaned = abs(cleaned)
+        thresold = abs (cleaned) * COMMITION
+        if profit > thresold:
+            self.up_cnt += abs (cleaned)
+        elif profit < thresold:
+            self.down_cnt += abs (cleaned)
+        else:
+            pass
+
+        self.buy_price = buy_price
+        self.state[0] += profit - cost
+
+        self.state[self.share_idx] = new_share
         return new_share
 
 
@@ -284,88 +304,104 @@ class StarTradingEnv(gym.Env):
         return self.state, self.reward, self.done, {"log": trading_book, 'risk':risk_log, 'pos': self.total_pos, 'neg': -1*self.total_neg}
 
     def step(self, actions):
-        # Episode ends when timestep reaches the last day in feature data
         self.done = self.day >= END_TRAIN
-        # Uncomment below to run a quick test
-        #self.done = self.day >= START_TRAIN + timedelta(days=10)
-
-        # If it is the last step, plot trading performance
 
         if self.done:
-            return self.step_done(actions)
-
+            return self.step_done(actions[0])
         else:
-            return self.step_normal(actions)
+            return self.step_normal(actions[0])
 
 
-    def _cur_unrealized(self, cur_buy_stat):
-        cur_buy_stat = np.array(cur_buy_stat)
-        total = np.sum(abs(cur_buy_stat))
-        if total ==0 : return 0
-        now = np.sum (  (WORLD.loc[self.day] - np.array(self.buy_price)) * cur_buy_stat )
-        now = now - (SLIPPAGE+COMMITION) * total
+    def _unrealized_profit(self, cur_buy_stat, buy_price, at=None):
+        transaction_size = np.sum(abs(cur_buy_stat))
+        if transaction_size ==0 : return 0
+        now = (self.getprice(at) - buy_price) * cur_buy_stat
+        now = now - (SLIPPAGE+COMMITION) * transaction_size
         return now
 
 
-    def step_normal(self, actions):
+    def step_normal(self, action):
 
+        pre_price = self.buy_price
         # Total asset is account balance + unrealized_pnl
-        unrealized_pnl = self.state[1]
-        total_asset_starting = self.state[0] + unrealized_pnl
+        pre_unrealized_pnl = self.state[1]
+        total_asset_starting = self.state[0] + pre_unrealized_pnl
 
-        for stock_idx, action in enumerate(actions):
-            position = self._trade (stock_idx, action)
+        position = self._trade ( action)
         self.position_log = np.append (self.position_log, position)
-
-
-
-        # Update date and skip some date since not every day is trading day
-        self.day += timedelta (days=1)
+        #NEXT DAY
         self.day, self.data = self.skip_day (input_states)
-        cur_buy_stat = self.state[self.full_feature_length:]
 
-        # Calculate unrealized profit and loss for existing stock holdings
-        unrealized_pnl = self._cur_unrealized(cur_buy_stat)
-        # print(unrealized_pnl)
+        cur_buy_stat = self.state[self.share_idx]
+        unrealized_pnl = self._unrealized_profit(cur_buy_stat, self.buy_price)
 
-        # next state space
-        self.state = [self.state[0]] + [unrealized_pnl] + self.data.values.tolist () + cur_buy_stat
+
+
+
+        self.state = [self.state[0]] + [unrealized_pnl] + self.data.values.tolist () + [cur_buy_stat]
 
         total_asset_ending = self.state[0] + unrealized_pnl
 
         step_profit = total_asset_ending - total_asset_starting
-        self.unit_log = np.append(self.unit_log, step_profit)
+
+        print(step_profit, unrealized_pnl)
+
+
         if step_profit <0: self.total_neg = np.append(self.total_neg, step_profit)
         else: self.total_pos = np.append(self.total_pos, step_profit)
 
-        # Update account balance statement
+        self.unit_log = np.append(self.unit_log, step_profit)
         self.acc_balance = np.append (self.acc_balance, self.state[0])
         self.unrealized_asset = np.append (self.unrealized_asset, unrealized_pnl)
 
-        # Update total asset statement
         self.total_asset = np.append (self.total_asset, total_asset_ending)
-
-
-        # Update timeline
         self.timeline = np.append (self.timeline, self.day)
 
-        # Get the agent to consider gain-to-pain or lake ratio and be responsible for it if it has traded long enough
-        self.reward = self.cal_reward(total_asset_starting, total_asset_ending, cur_buy_stat)
-        # print (self.state)
-        # print(self.reward)
-        # print('p ', WORLD.loc[self.day])
+
+        # self.reward = self.cal_reward(total_asset_starting, total_asset_ending, cur_buy_stat)
+        self.reward = self.cal_opt_reward (step_profit, pre_unrealized_pnl, pre_price, self.buy_price)
+
 
         self.reward_log = np.append (self.reward_log, self.reward)
-
         return self.state, self.reward, self.done, {}
 
     def remain_risk(self, action_power):
         return 0.01 * (pow(action_power + 1, 3) -1)
 
+    def get_optimal(self, base_share, base_unreal, base_price, next_price):
+        check_trade = [-MAX_TRADE, 0, MAX_TRADE]
+        optimal = self._unrealized_profit (base_share, base_price)
+
+        for target in check_trade:
+            if base_share == target: continue
+            cleaned, profit, cost, _, buy_price = self.__trade(base_price, base_share, target)
+            profit_sum = profit - cost
+            unreal = self._unrealized_profit (target, next_price)
+            profit_sum += unreal
+
+            print ("           >", base_share, target, profit_sum)
+            print(unreal - base_unreal )
+
+            optimal = max(profit_sum, optimal)
+
+
+
+        return optimal - base_unreal
+
+    def cal_opt_reward (self, profit, pre_unreal, pre_price, next_price):
+        opt = self.get_optimal(self.position_log[-2],pre_unreal, pre_price, next_price)
+        reward = (profit - opt)  + 1
+        if (profit-0.001 > opt):
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print(profit, "    ", opt, " >>>>", reward)
+        return reward
+
+
+
 
     def cal_reward(self, total_asset_starting, total_asset_ending, cur_buy_stat):
-        action = np.array(cur_buy_stat)
-        action_power = np.mean(abs(action/ MAX_TRADE))
+
+        action_power = np.mean(abs(cur_buy_stat/ MAX_TRADE))
         profit = (total_asset_ending - total_asset_starting)/ MAX_TRADE
         risk = self.remain_risk(action_power)
 
@@ -377,28 +413,9 @@ class StarTradingEnv(gym.Env):
             profit = max(profit, pow(profit, 1.2))
         return profit+0.4
 
-
-        # stability_tick = 20
-        # if len (self.total_asset) < stability_tick:
-        #     return profit - risk
-        #
-        #
-        # last_balance = self.total_asset[-stability_tick:]
-        # last_profit = pd.Series (self.reward_log[-stability_tick:])
-        #
-        # GPR = dp.MathCalc.calc_gain_to_pain (last_profit)
-        # LAKE = - dp.MathCalc.calc_lake_ratio (last_balance)
-        # print("PPPPP", profit)
-        # print("R", risk)
-        # print("G ", GPR)
-        # print("L", LAKE)
-        #
-        # reward = profit - risk + GPR + LAKE
-            # + (50 * dp.MathCalc.sharpe_ratio(pd.Series(returns)))
         return reward
 
 
-    
     def render(self, mode='human'):
         """
         Render the environment with current state.
