@@ -4,6 +4,8 @@ from tensorflow.keras import layers
 from tensorflow.keras import Model
 import numpy as np
 
+from baselines.common.mpi_running_mean_std import RunningMeanStd
+
 tf.keras.backend.set_floatx('float32')
 
 EPSILON = 1e-16
@@ -25,7 +27,7 @@ class Actor(Model):
         mu = self.mean_layer(a2)
 
         # Standard deviation is bounded by a constraint of being non-negative
-        # therefore we produce log stdev as output which can be [-inf, inf]
+        # therefore we produce log stdev as output which can be [-inf, inf]  ????????????
         log_sigma = self.stdev_layer(a2)
         sigma = tf.exp(log_sigma)
 
@@ -64,9 +66,9 @@ class Actor(Model):
         return action, log_pi
 
     @property
-    def trainable_variables(self):
+    def trainable_variables(self):#????????????????????
         return self.dense1_layer.trainable_variables + \
-                self.dense1_layer.trainable_variables + \
+                self.dense2_layer.trainable_variables + \
                 self.mean_layer.trainable_variables + \
                 self.stdev_layer.trainable_variables
 
@@ -95,7 +97,7 @@ class Critic(Model):
 class SoftActorCritic(tf.Module):
 
     def __init__(self, action_dim, writer, epoch_step=1, learning_rate=0.0003,
-                 alpha=0.2, gamma=0.99,
+                 alpha=0.2, gamma=0.99, return_range=(-5000.0, 5000.0),
                 polyak=0.995):
         self.policy = Actor(action_dim)
         self.q1 = Critic()
@@ -115,6 +117,11 @@ class SoftActorCritic(tf.Module):
         self.critic1_optimizer = tf.keras.optimizers.Adam(learning_rate)
         self.critic2_optimizer = tf.keras.optimizers.Adam(learning_rate)
         self.alpha_optimizer = tf.keras.optimizers.Adam(learning_rate)
+
+        self.return_range =return_range
+
+        with tf.name_scope('ret_rms'):
+            self.ret_rms = RunningMeanStd()
 
 
     def sample_action(self, current_state):
@@ -207,19 +214,21 @@ class SoftActorCritic(tf.Module):
         self.actor_optimizer.apply_gradients(zip(grads, variables))
 
         if  tf.math.is_nan (tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables])):
-            print(current_states)
-            print(grads)
-            # print(log_pi_a)
-            # print(q1)
-            # print(q2)
+            print(tf.reduce_sum(current_states))
+            print(1, current_states)
+            print(2, grads)
+            print(3, log_pi_a)
+            print(43, soft_q)
+            print(55, actor_loss)
+            print(66, min_q)
+
+            print(4, pi_a )
+            print(5, q1)
+            print(6, q2)
             # print()
             #
-            print(self.policy.trainable_variables)
+            print(7, self.policy.trainable_variables)
             raise Exception("dsdsdds")
-
-
-
-
 
         with self.writer.as_default():
             for grad, var in zip(grads, variables):
@@ -250,7 +259,7 @@ class SoftActorCritic(tf.Module):
 
 
     def train(self, current_states, actions, rewards, next_states, ends):
-
+        self.policy.summary()
         # Update Q network weights
         critic1_loss, critic2_loss = self.update_q_network(current_states, actions, rewards, next_states, ends)
 
