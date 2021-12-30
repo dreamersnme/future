@@ -3,9 +3,9 @@ import os
 import tensorflow as tf
 import numpy as np
 
-from baselines.agent_load_manager import AgentManager
-from baselines.sac.replay_buffer import ReplayBuffer
-from baselines.sac.sac import SoftActorCritic
+from RL.agent_load_manager import AgentManager
+from RL.sac.replay_buffer import ReplayBuffer
+from RL.sac.sac import SoftActorCritic
 
 
 def learn(env,
