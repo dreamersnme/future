@@ -11,6 +11,8 @@ import math
 
 # ------------------------- GLOBAL PARAMETERS -------------------------
 # Start and end period of historical data in question
+from gym2.envs.epi_plot import EpisodePlot
+
 START_TRAIN = datetime(2008, 12, 31)
 END_TRAIN = datetime(2017, 2, 12)
 START_TEST = datetime(2017, 2, 12)
@@ -119,7 +121,8 @@ print("_________________________________________________________________________
 class StarTradingEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self, day = START_TRAIN):
+    def __init__(self, day = START_TRAIN, title="Star", plot_dir=None):
+        self.plot_fig = EpisodePlot(title, plot_dir)
         if NUMBER_OF_STOCKS !=1:
             raise Exception("NEED SINGLE TARGET")
         """
@@ -313,6 +316,8 @@ class StarTradingEnv(gym.Env):
             return self.step_normal(actions[0])
 
 
+
+
     def _unrealized_profit(self, cur_buy_stat, buy_price, at=None):
         transaction_size = np.sum(abs(cur_buy_stat))
         if transaction_size ==0 : return 0
@@ -329,7 +334,13 @@ class StarTradingEnv(gym.Env):
         pre_unrealized_pnl = self.state[1]
         total_asset_starting = self.state[0] + pre_unrealized_pnl
 
-        position = self._trade ( action)
+        try:
+            position = self._trade ( action)
+        except Exception as e:
+            print(action)
+            print (self.state)
+            raise e
+
         self.position_log = np.append (self.position_log, position)
         #NEXT DAY
         self.day, self.data = self.skip_day (input_states)
@@ -419,9 +430,9 @@ class StarTradingEnv(gym.Env):
 
 
     def render(self, mode='human'):
-        """
-        Render the environment with current state.
-        """
+        self.plot_fig.update(iteration=self.iteration-1, idx=range(len(self.position_log)), pos=self.total_pos, neg= -self.total_neg,
+                             cash=self.acc_balance, unreal=self.unrealized_asset, asset=self.total_asset,
+                             reward=self.reward_log, position=self.position_log, unit=self.unit_log)
         return self.state
 
     def _seed(self, seed=None):
