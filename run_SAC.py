@@ -52,7 +52,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     #tf.random.set_seed(args.seed)
     # Instantiate the environment.
-    env = gym.make(args.env_name)
-    env2 = gym.make (args.env_name)
+    env = gym.make(args.env_name, title="SAC", plot_dir="./sac_log/figs")
     env.seed(args.seed)
     sac_learner.learn(env)
