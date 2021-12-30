@@ -8,9 +8,9 @@ from datetime import datetime
 import tensorflow as tf
 from gym import register
 
-from baselines.sac import sac_learner
-from baselines.sac.sac import SoftActorCritic
-from baselines.sac.replay_buffer import ReplayBuffer
+from RL.sac import sac_learner
+from RL.sac.sac import SoftActorCritic
+from RL.sac.replay_buffer import ReplayBuffer
 
 tf.keras.backend.set_floatx('float64')
 logging.basicConfig(level='INFO')
