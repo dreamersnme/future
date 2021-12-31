@@ -4,11 +4,14 @@ from tensorflow.keras import layers
 from tensorflow.keras import Model
 import numpy as np
 
+from RL.agent_utils import *
 from baselines.common.mpi_running_mean_std import RunningMeanStd
 
 tf.keras.backend.set_floatx('float32')
 
 EPSILON = 1e-16
+
+obs_range=(-5., 5.)
 
 class Actor(Model):
 
@@ -34,7 +37,7 @@ class Actor(Model):
         # Use re-parameterization trick to deterministically sample action from
         # the policy network. First, sample from a Normal distribution of
         # sample size as the action and multiply it with stdev
-        dist = tfp.distributions.Normal(mu, sigma)
+        dist = tfp.distributions.Normal(mu, sigma, allow_nan_stats=False)
         action_ = dist.sample()
 
         # Apply the tanh squashing to keep the gaussian bounded in (-1,1)
@@ -96,10 +99,10 @@ class Critic(Model):
 
 class SoftActorCritic(tf.Module):
 
-    def __init__(self, action_dim, writer, epoch_step=1, learning_rate=0.0003,
+    def __init__(self, memory, action_space, obs_shape, writer, epoch_step=1, learning_rate=0.0003,
                  alpha=0.2, gamma=0.99, return_range=(-5000.0, 5000.0),
-                polyak=0.995):
-        self.policy = Actor(action_dim)
+                polyak=0.995, norm_obs=True):
+        self.policy = Actor(action_space)
         self.q1 = Critic()
         self.q2 = Critic()
         self.target_q1 = Critic()
@@ -109,7 +112,7 @@ class SoftActorCritic(tf.Module):
         self.epoch_step = epoch_step
 
         self.alpha = tf.Variable(0.0, dtype=tf.float64)
-        self.target_entropy = -tf.constant(action_dim, dtype=tf.float64)
+        self.target_entropy = -tf.constant(action_space, dtype=tf.float64)
         self.gamma = gamma
         self.polyak = polyak
 
@@ -120,13 +123,32 @@ class SoftActorCritic(tf.Module):
 
         self.return_range =return_range
 
-        with tf.name_scope('ret_rms'):
-            self.ret_rms = RunningMeanStd()
+        self.memory = memory
+
+        # Observation normalization.
+        self.norm_obs = norm_obs
+        # Observation normalization.
+        if self.norm_obs:
+            with tf.name_scope('obs_rms'):
+                self.obs_rms = RunningMeanStd(shape=obs_shape)
+        else:
+            self.obs_rms = None
+
+    def store_transition(self, obs0, action, reward, obs1, terminal1):
+
+        B = obs0.shape[0]
+        for b in range(B):
+            self.memory.append(obs0[b], action[b], reward[b], obs1[b], terminal1[b])
+            if self.normalize_observations:
+                self.obs_rms.update(np.array([obs0[b]]))
 
 
-    def sample_action(self, current_state):
-        current_state_ = np.array(current_state, ndmin=2)
-        action, _ = self.policy(current_state_)
+    def sample_action(self, obs):
+        normalized_obs = tf.clip_by_value (normalize (obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
+
+
+        normalized_obs_ = np.array(normalized_obs, ndmin=2)
+        action, _ = self.policy(normalized_obs_)
         return action[0]
 
 
@@ -259,7 +281,7 @@ class SoftActorCritic(tf.Module):
 
 
     def train(self, current_states, actions, rewards, next_states, ends):
-        self.policy.summary()
+
         # Update Q network weights
         critic1_loss, critic2_loss = self.update_q_network(current_states, actions, rewards, next_states, ends)
 
