@@ -4,9 +4,10 @@ import tensorflow as tf
 import numpy as np
 
 from RL.agent_load_manager import AgentManager
+from RL.memory import Memory
 from RL.sac.replay_buffer import ReplayBuffer
 from RL.sac.sac import SoftActorCritic
-
+obs_range=(-5., 5.)
 
 def learn(env,
           lr=1e-3,
@@ -30,9 +31,9 @@ def learn(env,
     action_space = env.action_space.shape[0]
 
     # Initialize Replay buffer.
-    replay = ReplayBuffer (state_space, action_space)
+    memory=Memory (limit=int (1e6), action_shape=action_space, observation_shape=state_space)
 
-    agent = SoftActorCritic (action_space, writer,
+    agent = SoftActorCritic (action_space, state_space, writer,
                            learning_rate=lr,
                            gamma=gamma, polyak=polyak)
 
@@ -50,9 +51,10 @@ def learn(env,
         for idx in range(random_act_step):
 
             action = env.action_space.sample () if np.random.uniform () > 0.5 else agent.sample_action (current_state)
-            current_state, reward, done, _ = env.step (action)
+            next_state, reward, done, _ = env.step (action)
             end = 0 if done else 1
-            replay.store (current_state, action, reward, current_state, end)
+            agent.store_transition (current_state, action, reward, next_state, end)
+            current_state = next_state
 
 
         current_state = env.reset ()
@@ -61,12 +63,12 @@ def learn(env,
         done = False
         while not done:
             action = agent.sample_action (current_state)
-            current_state, reward, done, _ = env.step(action)
+            next_state, reward, done, _ = env.step(action)
 
             episode_reward += reward
             end = 0 if done else 1
-            replay.store (current_state, action, reward, current_state, end)
-
+            agent.store_transition (current_state, action, reward, next_state, end)
+            current_state = next_state
 
             step += 1
             global_step += 1
@@ -74,7 +76,7 @@ def learn(env,
         if render: env.render ()
         for epoch in range (train_steps):
             # Randomly sample minibatch of transitions from replay buffer
-            current_states, actions, rewards, next_states, ends = replay.fetch_sample (num_samples=batch_size)
+            current_states, actions, rewards, next_states, ends = memory.fetch_sample (num_samples=batch_size)
             critic1_loss, critic2_loss, actor_loss, alpha_loss = agent.train (current_states, actions, rewards, next_states, ends)
 
             with writer.as_default ():
