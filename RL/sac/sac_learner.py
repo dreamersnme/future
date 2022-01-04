@@ -84,11 +84,9 @@ def learn(env,
         apl=[]
         for epoch in range (train_steps):
             # Randomly sample minibatch of transitions from replay buffer
-            st = time.time()
-            critic1_loss, critic2_loss, actor_loss, alpha_loss = agent.train ()
-            ttt += (time.time()-st)
 
-            st = time.time()
+            critic1_loss, critic2_loss, actor_loss, alpha_loss = agent.train ()
+
             al.append(actor_loss)
             cl1.append(critic1_loss)
             cl2.append(critic2_loss)
@@ -99,9 +97,6 @@ def learn(env,
             #     tf.summary.scalar ("critic1_loss", critic1_loss, agent.epoch_step)
             #     tf.summary.scalar ("critic2_loss", critic2_loss, agent.epoch_step)
             #     tf.summary.scalar ("alpha_loss", alpha_loss, agent.epoch_step)
-
-
-            www += (time.time() - st)
             agent.epoch_step += 1
             agent.update_weights ()
 
@@ -111,7 +106,6 @@ def learn(env,
 
         print("=====================================")
         print(f"sampling {S_TM} train: {T_TM}")
-        print(f"ttt {ttt} www: {www}")
         print (f"Episode {episode} reward: {episode_reward}")
         with writer.as_default ():
             tf.summary.scalar ("episode_reward", episode_reward, episode)
