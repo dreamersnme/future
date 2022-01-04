@@ -22,8 +22,11 @@ class Actor(Model):
         self.dense2_layer = layers.Dense(32, activation=tf.nn.relu)
         self.mean_layer = layers.Dense(self.action_dim)
         self.stdev_layer = layers.Dense(self.action_dim)
+        small_sigma = tf.zeros(self.action_dim)
+        self.small_sigma = tf.add(small_sigma, 1e-3)
 
-    #@tf.function
+
+    @tf.function
     def call(self, state):
         # Get mean and standard deviation from the policy network
         a1 = self.dense1_layer(state)
@@ -33,38 +36,49 @@ class Actor(Model):
         # Standard deviation is bounded by a constraint of being non-negative
         # therefore we produce log stdev as output which can be [-inf, inf]  ????????????
         log_sigma = self.stdev_layer(a2)
+        log_sigma = tf.clip_by_value(log_sigma, -10, 10)
+        #print(9898988, log_sigma)
         sigma = tf.exp(log_sigma)
+        # sigma = tf.maximum(sigma, self.small_sigma)
+
 
         # Use re-parameterization trick to deterministically sample action from
         # the policy network. First, sample from a Normal distribution of
         # sample size as the action and multiply it with stdev
+
+
         dist = tfp.distributions.Normal(mu, sigma, allow_nan_stats=False)
         action_ = dist.sample()
+        #print(8888, action_)
+        #print(55, mu)
+        #print(666,sigma)
 
         # Apply the tanh squashing to keep the gaussian bounded in (-1,1)
         action = tf.tanh(action_)
 
         # Calculate the log probability
         log_pi_ = dist.log_prob(action_)
+        #print(log_pi_)
+
         # Change log probability to account for tanh squashing as mentioned in
         # Appendix C of the paper
         log_pi = log_pi_ - tf.reduce_sum(tf.math.log(1 - action**2 + EPSILON), axis=1,
                                          keepdims=True)
-
-        if tf.math.is_nan (tf.reduce_sum(action)):
-            print(state)
-            print(tf.reduce_sum(state))
-
-            print(tf.reduce_sum(a1))
-            print (tf.reduce_sum (a2))
-            print (tf.reduce_sum (mu))
-            print (tf.reduce_sum (log_sigma))
-            print(tf.reduce_sum(sigma))
-            print (tf.reduce_sum (action_))
-            print (action)
-            print (tf.reduce_sum (log_pi))
-            print(self.trainable_variables)
-            raise Exception("NAN")
+        # 
+        # if tf.math.is_nan (tf.reduce_sum(action)):
+        #     #print(state)
+        #     #print(tf.reduce_sum(state))
+        # 
+        #     #print(tf.reduce_sum(a1))
+        #     print (tf.reduce_sum (a2))
+        #     print (tf.reduce_sum (mu))
+        #     print (tf.reduce_sum (log_sigma))
+        #     #print(tf.reduce_sum(sigma))
+        #     print (tf.reduce_sum (action_))
+        #     print (action)
+        #     print (tf.reduce_sum (log_pi))
+        #     #print(self.trainable_variables)
+        #     raise Exception("NAN")
 
         return action, log_pi
 
@@ -83,7 +97,7 @@ class Critic(Model):
         self.dense2_layer = layers.Dense(32, activation=tf.nn.relu)
         self.output_layer = layers.Dense(1)
 
-    #@tf.function
+    @tf.function
     def call(self, state, action):
         state_action = tf.concat([state, action], axis=1)
         a1 = self.dense1_layer(state_action)
@@ -143,16 +157,17 @@ class SoftActorCritic(tf.Module):
         if self.norm_obs:
             self.obs_rms.update(np.array([obs0]))
 
-    #@tf.function
+    @tf.function
     def step(self, obs):
-        # tf.constant(obs, dtype=tf.float32)
+
         # normalized_obs = tf.clip_by_value (normalize (obs, self.obs_rms), self.obs_range[0], self.obs_range[1])
         # normalized_obs = tf.reshape(normalized_obs, [1, -1])
+        # action, _ = self.policy(normalized_obs)
         obs = tf.reshape(obs, [1, -1])
         action, _ = self.policy(obs)
         return action[0]
 
-    #@tf.function
+    @tf.function
     def update_q_network(self, current_states, actions, rewards, next_states, ends):
 
         with tf.GradientTape() as tape1:
@@ -214,57 +229,57 @@ class SoftActorCritic(tf.Module):
 
         return critic1_loss, critic2_loss
 
-    #@tf.function
+    @tf.function
     def update_policy_network(self, current_states):
         with tf.GradientTape() as tape:
             # Sample actions from the policy for current states
             pi_a, log_pi_a = self.policy(current_states)
-            print(1111,pi_a)
-            print(1112, log_pi_a)
+            #print(1111,pi_a)
+            #print(1112, log_pi_a)
             # Get Q value estimates from target Q network
             q1 = self.q1(current_states, pi_a)
             q2 = self.q2(current_states, pi_a)
-            print(2222,q1)
-            print(3333,q2)
+            #print(2222,q1)
+            #print(3333,q2)
 
             # Apply the clipped double Q trick
             # Get the minimum Q value of the 2 target networks
             min_q = tf.minimum(q1, q2)
-            print(4444, min_q)
+            #print(4444, min_q)
             soft_q = min_q - self.alpha * log_pi_a
-            print(5555,soft_q)
-            print(5555, self.alpha )
+            #print(5555,soft_q)
+            #print(5555, self.alpha )
 
             actor_loss = -tf.reduce_mean(soft_q)
-            print(actor_loss)
+            #print(actor_loss)
 
         variables = self.policy.trainable_variables
-        copy = [tf.Variable(x)for x in self.policy.trainable_variables]
-        ssss = self.policy(current_states)
+        # copy = [tf.Variable(x)for x in self.policy.trainable_variables]
+        # ssss = self.policy(current_states)
 
-        if tf.math.is_nan(tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables])):
-            print(tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables]))
-            print("---------", self.policy.trainable_variables)
-
-            # print()
-            #
-
-            raise Exception("ddddddddddddddddd")
+        # if tf.math.is_nan(tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables])):
+        #     #print(tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables]))
+        #     #print("---------", self.policy.trainable_variables)
+        # 
+        #     #print()
+        #     #
+        # 
+        #     raise Exception("ddddddddddddddddd")
 
         grads = tape.gradient(actor_loss, variables)
         self.actor_optimizer.apply_gradients(zip(grads, variables))
 
-        if  tf.math.is_nan (tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables])):
-            print(tf.reduce_sum(current_states))
-            print(1, current_states)
-            print(2, grads)
-            print(4442, copy)
-            print(9999, ssss)
-
-            # print()
-            #
-
-            raise Exception("dsdsdds")
+        # if  tf.math.is_nan (tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables])):
+        #     #print(tf.reduce_sum(current_states))
+        #     #print(1, current_states)
+        #     #print(2, grads)
+        #     #print(4442, copy)
+        #     #print(9999, ssss)
+        # 
+        #     #print()
+        #     #
+        # 
+        #     raise Exception("dsdsdds")
         #
         # with self.writer.as_default():
         #     for grad, var in zip(grads, variables):
@@ -273,7 +288,7 @@ class SoftActorCritic(tf.Module):
 
         return actor_loss
 
-    #@tf.function
+    @tf.function
     def update_alpha(self, current_states):
         with tf.GradientTape() as tape:
             # Sample actions from the policy for current states
@@ -315,11 +330,11 @@ class SoftActorCritic(tf.Module):
 
         #if self.epoch_step % 10 == 0:
         #    self.alpha = max(0.1, 0.9**(1+self.epoch_step/10000))
-        #    print("alpha: ", self.alpha, 1+self.epoch_step/10000)
+        #    #print("alpha: ", self.alpha, 1+self.epoch_step/10000)
 
         return critic1_loss, critic2_loss, actor_loss, alpha_loss
 
-    # #@tf.function
+    # @tf.function
     def update_weights(self):
 
         for theta_target, theta in zip(self.target_q1.trainable_variables,

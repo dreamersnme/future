@@ -400,7 +400,7 @@ class StarTradingEnv(gym.Env):
     def cal_simple_reward(self, total_asset_starting, total_asset_ending):
 
         profit = (total_asset_ending - total_asset_starting)/ MAX_TRADE
-        return profit/10
+        return profit
 
 
     def cal_reward(self, total_asset_starting, total_asset_ending, cur_buy_stat):
