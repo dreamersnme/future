@@ -1,4 +1,5 @@
 import os
+import time
 
 import tensorflow as tf
 import numpy as np
@@ -14,8 +15,8 @@ def learn(env,
           gamma=0.99,
           polyak=0.995,
           nb_epochs=10000,
-          random_act_step = 1000,
-          train_steps =100,
+          noise_rt = 0.1,
+          train_steps =1000,
           batch_size = 128,
           render=True,
           log_dir='./sac_log/',
@@ -26,14 +27,14 @@ def learn(env,
 
     writer = tf.summary.create_file_writer(summary_dir, filename_suffix=None)
 
-    state_space = env.observation_space.shape[0]
+    state_shape = env.observation_space.shape
     # TODO: fix this when env.action_space is not `Box`
-    action_space = env.action_space.shape[0]
-
+    action_shape = env.action_space.shape
+    action_space = action_shape[0]
     # Initialize Replay buffer.
-    memory=Memory (limit=int (1e6), action_shape=action_space, observation_shape=state_space)
+    memory=Memory (limit=int (1e6), action_shape=action_shape, observation_shape=state_shape)
 
-    agent = SoftActorCritic (action_space, state_space, writer,
+    agent = SoftActorCritic (memory, action_space, state_shape, writer,
                            learning_rate=lr,
                            gamma=gamma, polyak=polyak)
 
@@ -42,27 +43,18 @@ def learn(env,
 
     # Repeat until convergence
     global_step = 1
-    episode = 1
-    episode_rewards = []
-    for epoch in range(nb_epochs):
+    for episode in range(nb_epochs):
+        episode += 1
         # Observe state
-        current_state = env.reset ()
-        done = False
-        for idx in range(random_act_step):
-
-            action = env.action_space.sample () if np.random.uniform () > 0.5 else agent.sample_action (current_state)
-            next_state, reward, done, _ = env.step (action)
-            end = 0 if done else 1
-            agent.store_transition (current_state, action, reward, next_state, end)
-            current_state = next_state
-
-
         current_state = env.reset ()
         step = 1
         episode_reward = 0
         done = False
+        clock = time.time()
+        print(current_state)
+
         while not done:
-            action = agent.sample_action (current_state)
+            action = agent.sample_action (current_state) if np.random.uniform () < noise_rt else env.action_space.sample ()
             next_state, reward, done, _ = env.step(action)
 
             episode_reward += reward
@@ -72,11 +64,13 @@ def learn(env,
 
             step += 1
             global_step += 1
-
+        S_TM = int(time.time() - clock)
         if render: env.render ()
+
+        clock = time.time()
         for epoch in range (train_steps):
             # Randomly sample minibatch of transitions from replay buffer
-            current_states, actions, rewards, next_states, ends = memory.fetch_sample (num_samples=batch_size)
+            current_states, actions, rewards, next_states, ends = memory.fetch_sample (batch_size=batch_size)
             critic1_loss, critic2_loss, actor_loss, alpha_loss = agent.train (current_states, actions, rewards, next_states, ends)
 
             with writer.as_default ():
@@ -88,13 +82,14 @@ def learn(env,
             agent.epoch_step += 1
             agent.update_weights ()
 
-        MANAGER.save()
-        episode_rewards.append (episode_reward)
-        episode += 1
-        avg_episode_reward = sum (episode_rewards[-100:]) / len (episode_rewards[-100:])
 
+
+        T_TM = int(time.time() - clock)
+        MANAGER.save()
+
+        print("=====================================")
+        print(f"sampling {S_TM} train: {T_TM}")
         print (f"Episode {episode} reward: {episode_reward}")
-        print (f"{episode} Average episode reward: {avg_episode_reward}")
         with writer.as_default ():
             tf.summary.scalar ("episode_reward", episode_reward, episode)
-            tf.summary.scalar ("avg_episode_reward", avg_episode_reward, episode)
+

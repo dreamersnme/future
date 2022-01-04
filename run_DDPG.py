@@ -6,12 +6,14 @@ import logging
 import numpy as np
 from datetime import datetime
 import tensorflow as tf
+tf.keras.backend.set_floatx('float32')
 from gym import register
 
+from RL.cmd_util import make_vec_env
+from RL.ddpg import ddpg_learner
 from RL.sac import sac_learner
 from RL.sac.sac import SoftActorCritic
 from RL.sac.replay_buffer import ReplayBuffer
-
 
 logging.basicConfig(level='INFO')
 
@@ -41,6 +43,8 @@ parser.add_argument('--learning_rate', type=float, default=0.001,
 
 
 
+
+
 if __name__ == '__main__':
     gpus = tf.config.experimental.list_physical_devices(device_type='GPU')
     tf.config.experimental.set_memory_growth(gpus[0], True)
@@ -50,10 +54,6 @@ if __name__ == '__main__':
     )
 
     args = parser.parse_args()
-    #tf.random.set_seed(args.seed)
-    # Instantiate the environment.
-    env = gym.make(args.env_name, title="SAC", plot_dir="./sac_log/figs")
-    print(type(env))
 
-    env.seed(args.seed)
-    sac_learner.learn(env)
+    env = gym.make(args.env_name, title="DDPG", plot_dir="./ddpg_log/figs")
+    ddpg_learner.learn(env)

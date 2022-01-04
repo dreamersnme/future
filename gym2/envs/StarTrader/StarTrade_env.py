@@ -117,7 +117,7 @@ print("_________________________________________________________________________
 
 
 # ------------------------------ CLASSES ---------------------------------
-
+obs_range=(-5., 5.)
 class StarTradingEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
@@ -209,7 +209,6 @@ class StarTradingEnv(gym.Env):
             return direction, 0, shift, clean_all
         if (cur_share < 0 and shift < 0) or (cur_share > 0 and shift > 0):
             return direction, 0, shift, clean_all
-
         clean_all = (abs (cur_share) <= abs (shift))
 
         cleaned = -cur_share if clean_all else shift
@@ -287,7 +286,6 @@ class StarTradingEnv(gym.Env):
         trading_book["Position"]  = self.position_log
         trading_book["Unit"] = self.unit_log
 
-
         trading_book.to_csv ('./train_result/trading_book_train_{}.csv'.format (self.iteration - 1))
 
         total_reward = trading_book["CumReward"][-1]
@@ -296,26 +294,16 @@ class StarTradingEnv(gym.Env):
         print("UP: {}, DOWN: {}, Commition: {}".format(self.up_cnt, self.down_cnt, self.total_commition))
         print("Acc: {}, Rwd: {}, Neg: {}".format(total_asset, total_reward,total_neg))
 
-        kpi = dp.MathCalc.calc_kpi(trading_book)
-        kpi.to_csv('./train_result/kpi_train_{}.csv'.format(self.iteration - 1))
-        print("===============================================================================================")
-        print(kpi)
-        print("===============================================================================================")
-
-
         risk_log = -1 * total_neg/ np.sum(self.total_pos)
 
         return self.state, self.reward, self.done, {"log": trading_book, 'risk':risk_log, 'pos': self.total_pos, 'neg': -1*self.total_neg}
 
     def step(self, actions):
         self.done = self.day >= END_TRAIN
-
         if self.done:
             return self.step_done(actions[0])
         else:
             return self.step_normal(actions[0])
-
-
 
 
     def _unrealized_profit(self, cur_buy_stat, buy_price, at=None):
@@ -348,13 +336,8 @@ class StarTradingEnv(gym.Env):
         cur_buy_stat = self.state[self.share_idx]
         unrealized_pnl = self._unrealized_profit(cur_buy_stat, self.buy_price)
 
-
-
-
         self.state = [self.state[0]] + [unrealized_pnl] + self.data.values.tolist () + [cur_buy_stat]
-
         total_asset_ending = self.state[0] + unrealized_pnl
-
         step_profit = total_asset_ending - total_asset_starting
 
         # print(step_profit, unrealized_pnl)
@@ -372,7 +355,8 @@ class StarTradingEnv(gym.Env):
 
 
         # self.reward = self.cal_reward(total_asset_starting, total_asset_ending, cur_buy_stat)
-        self.reward = self.cal_opt_reward (pre_date, step_profit, pre_unrealized_pnl, pre_price, self.buy_price)
+        # self.reward = self.cal_opt_reward (pre_date, step_profit, pre_unrealized_pnl, pre_price, self.buy_price)
+        self.reward = self.cal_simple_reward(total_asset_starting, total_asset_ending)
 
 
         self.reward_log = np.append (self.reward_log, self.reward)
@@ -409,7 +393,10 @@ class StarTradingEnv(gym.Env):
         # print(profit, "    ", opt, " >>>>", reward)
         return reward
 
+    def cal_simple_reward(self, total_asset_starting, total_asset_ending):
 
+        profit = (total_asset_ending - total_asset_starting)/ MAX_TRADE
+        return profit
 
 
     def cal_reward(self, total_asset_starting, total_asset_ending, cur_buy_stat):

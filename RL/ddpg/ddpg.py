@@ -2,29 +2,14 @@ from functools import reduce
 
 import numpy as np
 import tensorflow as tf
-
+tf.keras.backend.set_floatx('float32')
+from RL.agent_utils import *
 from baselines import logger
-from baselines.ddpg.models import Actor, Critic
+from RL.ddpg.models import Actor, Critic
 from baselines.common.mpi_running_mean_std import RunningMeanStd
 from baselines.ddpg.things import check_NAN
 
-try:
-    from mpi4py import MPI
-    from baselines.common.mpi_adam_optimizer import MpiAdamOptimizer
-    from baselines.common.mpi_util import sync_from_root
-except ImportError:
-    MPI = None
 
-def normalize(x, stats):
-    if stats is None:
-        return x
-    return (x - stats.mean) / stats.std
-
-
-def denormalize(x, stats):
-    if stats is None:
-        return x
-    return x * stats.std + stats.mean
 
 @tf.function
 def reduce_std(x, axis=None, keepdims=False):
@@ -37,11 +22,11 @@ def reduce_var(x, axis=None, keepdims=False):
     return tf.reduce_mean(devs_squared, axis=axis, keepdims=keepdims)
 
 
-
-
 # @tf.function
 def tensor_in(var, list):
     bools = []
+    # print("1111", var)
+    # print(list)
     for p_var in list:
         if var.name == p_var.name and var.shape == p_var.shape and tf.reduce_all (var == p_var):
             bools.append(True)
@@ -55,6 +40,10 @@ def tensor_in(var, list):
 def update_perturbed_actor(actor, perturbed_actor, param_noise_stddev):
     for var, perturbed_var in zip(actor.variables, perturbed_actor.variables):
         if tensor_in(var, actor.perturbable_vars):
+            # print("==========================")
+            # print(var)
+            # print(tf.random.normal(shape=tf.shape(var), mean=0., stddev=param_noise_stddev))
+
             perturbed_var.assign(var + tf.random.normal(shape=tf.shape(var), mean=0., stddev=param_noise_stddev))
         else:
             perturbed_var.assign(var)
@@ -88,6 +77,7 @@ class DDPG(tf.Module):
         self.critic_l2_reg = critic_l2_reg
         self.actor_lr = tf.constant(actor_lr)
         self.critic_lr = tf.constant(critic_lr)
+        self.epoch_step = 1
 
         # Observation normalization.
         if self.normalize_observations:
@@ -111,13 +101,9 @@ class DDPG(tf.Module):
         if self.param_noise is not None:
             self.setup_param_noise()
 
-        if MPI is not None:
-            comm = MPI.COMM_WORLD
-            self.actor_optimizer = MpiAdamOptimizer(comm, self.actor.trainable_variables)
-            self.critic_optimizer = MpiAdamOptimizer(comm, self.critic.trainable_variables)
-        else:
-            self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=actor_lr)
-            self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=critic_lr)
+
+        self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=actor_lr)
+        self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=critic_lr)
 
         logger.info('setting up actor optimizer')
         actor_shapes = [var.get_shape().as_list() for var in self.actor.trainable_variables]
@@ -186,18 +172,10 @@ class DDPG(tf.Module):
             assert M.get_shape()[-1] == 1
             assert b.get_shape()[-1] == 1
 
-
-    def  test_actor(self, obs):
-        normalized_obs = tf.clip_by_value(normalize(obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
-        actor_tf = self.actor(normalized_obs)
-
-
-
-    @tf.function
+    # @tf.function
     def step(self, obs, apply_noise=True, compute_Q=True):
-
         normalized_obs = tf.clip_by_value(normalize(obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
-
+        normalized_obs = np.array(normalized_obs, ndmin=2)
         actor_tf = self.actor(normalized_obs)
         if self.param_noise is not None and apply_noise:
             action = self.perturbed_actor(normalized_obs)
@@ -221,17 +199,19 @@ class DDPG(tf.Module):
     def store_transition(self, obs0, action, reward, obs1, terminal1):
         reward *= self.reward_scale
 
-        B = obs0.shape[0]
-        for b in range(B):
+        self.memory.append(obs0, action, reward, obs1, terminal1)
+        if self.normalize_observations:
+            self.obs_rms.update(np.array([obs0]))
 
-            self.memory.append(obs0[b], action[b], reward[b], obs1[b], terminal1[b])
-            if self.normalize_observations:
-                self.obs_rms.update(np.array([obs0[b]]))
+
 
     def train(self):
-        batch = self.memory.sample(batch_size=self.batch_size)
-        obs0, obs1 = tf.constant(batch['obs0']), tf.constant(batch['obs1'])
-        actions, rewards, terminals1 = tf.constant(batch['actions']), tf.constant(batch['rewards']), tf.constant(batch['terminals1'], dtype=tf.float32)
+        # batch = self.memory.sample(batch_size=self.batch_size)
+        obs0, actions, rewards, obs1, ends = self.memory.fetch_sample(batch_size=self.batch_size)
+
+
+        obs0, obs1 = tf.constant(obs0), tf.constant(obs1)
+        actions, rewards, terminals1 = tf.constant(actions), tf.constant(rewards), tf.constant(ends, dtype=tf.float32)
         normalized_obs0, target_Q = self.compute_normalized_obs0_and_target_Q(obs0, obs1, rewards, terminals1)
 
         if self.normalize_returns and self.enable_popart:
@@ -253,12 +233,9 @@ class DDPG(tf.Module):
 
 
 
-        if MPI is not None:
-            self.actor_optimizer.apply_gradients(actor_grads, self.actor_lr)
-            self.critic_optimizer.apply_gradients(critic_grads, self.critic_lr)
-        else:
-            self.actor_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))
-            self.critic_optimizer.apply_gradients(zip(critic_grads, self.critic.trainable_variables))
+
+        self.actor_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))
+        self.critic_optimizer.apply_gradients(zip(critic_grads, self.critic.trainable_variables))
         return critic_loss, actor_loss
 
     @tf.function
@@ -277,15 +254,10 @@ class DDPG(tf.Module):
             critic_with_actor_tf = denormalize(tf.clip_by_value(normalized_critic_with_actor_tf, self.return_range[0], self.return_range[1]), self.ret_rms)
             actor_loss = -tf.reduce_mean(critic_with_actor_tf)
 
-
-
         actor_grads = tape.gradient(actor_loss, self.actor.trainable_variables)
 
         if self.clip_norm:
             actor_grads = [tf.clip_by_norm(grad, clip_norm=self.clip_norm) for grad in actor_grads]
-        if MPI is not None:
-            actor_grads = tf.concat([tf.reshape(g, (-1,)) for g in actor_grads], axis=0)
-
 
         return actor_grads, actor_loss
 
@@ -304,14 +276,12 @@ class DDPG(tf.Module):
         critic_grads = tape.gradient(critic_loss, self.critic.trainable_variables)
         if self.clip_norm:
             critic_grads = [tf.clip_by_norm(grad, clip_norm=self.clip_norm) for grad in critic_grads]
-        if MPI is not None:
-            critic_grads = tf.concat([tf.reshape(g, (-1,)) for g in critic_grads], axis=0)
+
         return critic_grads, critic_loss
 
 
     def initialize(self):
-        if MPI is not None:
-            sync_from_root(self.actor.trainable_variables + self.critic.trainable_variables)
+
         self.target_actor.set_weights(self.actor.get_weights())
         self.target_critic.set_weights(self.critic.get_weights())
 
@@ -372,18 +342,12 @@ class DDPG(tf.Module):
 
 
     def adapt_param_noise(self, obs0):
-        try:
-            from mpi4py import MPI
-        except ImportError:
-            MPI = None
+
 
         if self.param_noise is None:
             return 0.
 
         mean_distance = self.get_mean_distance(obs0).numpy()
-
-        if MPI is not None:
-            mean_distance = MPI.COMM_WORLD.allreduce(mean_distance, op=MPI.SUM) / MPI.COMM_WORLD.Get_size()
 
         self.param_noise.adapt(mean_distance)
         return mean_distance

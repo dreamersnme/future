@@ -5,6 +5,7 @@ except ImportError:
 
 import tensorflow as tf, numpy as np
 
+
 class RunningMeanStd(tf.Module):
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
     def __init__(self, epsilon=1e-2, shape=(), default_clip_range=np.inf):

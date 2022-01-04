@@ -36,7 +36,7 @@ def check_NAN(item, see = []):
 
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+
 
 PLOTS={}
 

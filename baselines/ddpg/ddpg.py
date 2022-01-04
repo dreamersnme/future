@@ -45,7 +45,7 @@ def learn(network, env,
           seed=None,
           total_timesteps=None,
           nb_epochs=10000, # with default settings, perform 1M steps total
-          nb_rollout_steps=100,
+          nb_rollout_steps=10000,
           reward_scale=1.0,
           render=False,
           render_eval=False,
@@ -58,7 +58,7 @@ def learn(network, env,
           popart=False,
           gamma=0.99,
           clip_norm=None,
-          nb_train_steps=50, # per epoch cycle and MPI worker,
+          nb_train_steps=1000, # per epoch cycle and MPI worker,
           nb_eval_steps=50,
           batch_size=128, # per MPI worker
           tau=0.01,
@@ -72,6 +72,8 @@ def learn(network, env,
     result_plot = ResultPlot()
     set_global_seeds(seed)
     rank = 0
+
+    print(type(env))
 
 
     nb_actions = env.action_space.shape[-1]
@@ -137,6 +139,8 @@ def learn(network, env,
                 # max_action is of dimension A, whereas action is dimension (nenvs, A) - the multiplication gets broadcasted to the batch
 
                 new_obs, r, done, info = env.step(max_action * action)  # scale for execution in env (as far as DDPG is concerned, every action is in [-1, 1])
+
+
                 if render: env.render()
 
                 episode_reward += r[0]
@@ -156,8 +160,6 @@ def learn(network, env,
                     agent.reset()
 
                 if EPOCH_DONE: break
-
-
 
             rollout_time = rollout_time + (time.time() - rollout_start)
 

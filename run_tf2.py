@@ -89,7 +89,7 @@ def build_env(args):
     seed = args.seed
 
     env_type, env_id = get_env_type(args)
-
+    print("33", env_type)
     if env_type in {'atari', 'retro'}:
         if alg == 'deepq':
             env = make_env(env_id, env_type, seed=seed, wrapper_kwargs={'frame_stack': True})
@@ -106,7 +106,7 @@ def build_env(args):
 
         if env_type == 'mujoco':
             env = VecNormalize(env)
-
+    print("2222", type(env))
     return env
 
 

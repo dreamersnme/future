@@ -59,7 +59,6 @@ class Memory(object):
         reward_batch = array_min2d(self.rewards.get_batch(batch_idxs))
         terminal1_batch = array_min2d(self.terminals1.get_batch(batch_idxs))
 
-
         return obs0_batch, action_batch,reward_batch, obs1_batch,terminal1_batch
 
     def append(self, obs0, action, reward, obs1, terminal1, training=True):

@@ -55,6 +55,9 @@ def tensor_in(var, list):
 def update_perturbed_actor(actor, perturbed_actor, param_noise_stddev):
     for var, perturbed_var in zip(actor.variables, perturbed_actor.variables):
         if tensor_in(var, actor.perturbable_vars):
+            print("==========================")
+            print(var)
+            print(tf.random.normal(shape=tf.shape(var), mean=0., stddev=param_noise_stddev))
             perturbed_var.assign(var + tf.random.normal(shape=tf.shape(var), mean=0., stddev=param_noise_stddev))
         else:
             perturbed_var.assign(var)
@@ -194,11 +197,11 @@ class DDPG(tf.Module):
 
 
 
-    @tf.function
+    # @tf.function
     def step(self, obs, apply_noise=True, compute_Q=True):
 
         normalized_obs = tf.clip_by_value(normalize(obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
-
+        print(normalized_obs)
         actor_tf = self.actor(normalized_obs)
         if self.param_noise is not None and apply_noise:
             action = self.perturbed_actor(normalized_obs)
@@ -224,7 +227,6 @@ class DDPG(tf.Module):
 
         B = obs0.shape[0]
         for b in range(B):
-
             self.memory.append(obs0[b], action[b], reward[b], obs1[b], terminal1[b])
             if self.normalize_observations:
                 self.obs_rms.update(np.array([obs0[b]]))

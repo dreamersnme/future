@@ -11,7 +11,7 @@ tf.keras.backend.set_floatx('float32')
 
 EPSILON = 1e-16
 
-obs_range=(-5., 5.)
+
 
 class Actor(Model):
 
@@ -100,7 +100,7 @@ class Critic(Model):
 class SoftActorCritic(tf.Module):
 
     def __init__(self, memory, action_space, obs_shape, writer, epoch_step=1, learning_rate=0.0003,
-                 alpha=0.2, gamma=0.99, return_range=(-5000.0, 5000.0),
+                 alpha=0.2, gamma=0.99, obs_range=(-5., 5.), return_range=(-5000.0, 5000.0),
                 polyak=0.995, norm_obs=True):
         self.policy = Actor(action_space)
         self.q1 = Critic()
@@ -110,9 +110,10 @@ class SoftActorCritic(tf.Module):
 
         self.writer = writer
         self.epoch_step = epoch_step
+        self.obs_range = obs_range
 
-        self.alpha = tf.Variable(0.0, dtype=tf.float64)
-        self.target_entropy = -tf.constant(action_space, dtype=tf.float64)
+        self.alpha = tf.Variable(0.0, dtype=tf.float32)
+        self.target_entropy = -tf.constant(action_space, dtype=tf.float32)
         self.gamma = gamma
         self.polyak = polyak
 
@@ -136,18 +137,15 @@ class SoftActorCritic(tf.Module):
 
     def store_transition(self, obs0, action, reward, obs1, terminal1):
 
-        B = obs0.shape[0]
-        for b in range(B):
-            self.memory.append(obs0[b], action[b], reward[b], obs1[b], terminal1[b])
-            if self.normalize_observations:
-                self.obs_rms.update(np.array([obs0[b]]))
+        self.memory.append(obs0, action, reward, obs1, terminal1)
+        if self.norm_obs:
+            self.obs_rms.update(np.array([obs0]))
 
 
     def sample_action(self, obs):
-        normalized_obs = tf.clip_by_value (normalize (obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
-
-
+        normalized_obs = tf.clip_by_value (normalize (obs, self.obs_rms), self.obs_range[0], self.obs_range[1])
         normalized_obs_ = np.array(normalized_obs, ndmin=2)
+
         action, _ = self.policy(normalized_obs_)
         return action[0]
 
@@ -239,17 +237,10 @@ class SoftActorCritic(tf.Module):
             print(tf.reduce_sum(current_states))
             print(1, current_states)
             print(2, grads)
-            print(3, log_pi_a)
-            print(43, soft_q)
-            print(55, actor_loss)
-            print(66, min_q)
 
-            print(4, pi_a )
-            print(5, q1)
-            print(6, q2)
             # print()
             #
-            print(7, self.policy.trainable_variables)
+
             raise Exception("dsdsdds")
 
         with self.writer.as_default():
@@ -281,6 +272,11 @@ class SoftActorCritic(tf.Module):
 
 
     def train(self, current_states, actions, rewards, next_states, ends):
+
+        current_states = tf.clip_by_value (normalize (current_states, self.obs_rms), self.obs_range[0], self.obs_range[1])
+        current_states = np.array(current_states, ndmin=2)
+        next_states = tf.clip_by_value(normalize(next_states, self.obs_rms), self.obs_range[0], self.obs_range[1])
+        next_states = np.array(next_states, ndmin=2)
 
         # Update Q network weights
         critic1_loss, critic2_loss = self.update_q_network(current_states, actions, rewards, next_states, ends)
