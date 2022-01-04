@@ -209,7 +209,6 @@ class DDPG(tf.Module):
         # batch = self.memory.sample(batch_size=self.batch_size)
         obs0, actions, rewards, obs1, ends = self.memory.fetch_sample(batch_size=self.batch_size)
 
-
         obs0, obs1 = tf.constant(obs0), tf.constant(obs1)
         actions, rewards, terminals1 = tf.constant(actions), tf.constant(rewards), tf.constant(ends, dtype=tf.float32)
         normalized_obs0, target_Q = self.compute_normalized_obs0_and_target_Q(obs0, obs1, rewards, terminals1)
@@ -230,8 +229,6 @@ class DDPG(tf.Module):
         critic_grads, critic_loss = self.get_critic_grads(normalized_obs0, actions, target_Q)
 
         check_NAN([actor_loss, critic_loss], [obs0, obs1, actions, rewards, terminals1, normalized_obs0, target_Q, actor_grads, critic_grads])
-
-
 
 
         self.actor_optimizer.apply_gradients(zip(actor_grads, self.actor.trainable_variables))

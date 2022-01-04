@@ -115,6 +115,8 @@ def learn(env, network='mlp',
 
         clock = time.time()
 
+        al_log =[]
+        cl_log =[]
         for t_train in range(nb_train_steps):
             # Adapt param noise, if necessary.
             if memory.nb_entries >= batch_size and t_train % param_noise_adaption_interval == 0:
@@ -123,10 +125,12 @@ def learn(env, network='mlp',
                 distance = agent.adapt_param_noise(obs0)
 
             cl, al = agent.train()
+            al_log.append(al)
+            cl_log.append(cl)
             agent.update_target_net()
-            with writer.as_default ():
-                tf.summary.scalar ("actor_loss", al, agent.epoch_step)
-                tf.summary.scalar ("critic1_loss", cl, agent.epoch_step)
+            # with writer.as_default ():
+            #     tf.summary.scalar ("actor_loss", al, agent.epoch_step)
+            #     tf.summary.scalar ("critic1_loss", cl, agent.epoch_step)
 
             agent.epoch_step += 1
 
@@ -139,4 +143,6 @@ def learn(env, network='mlp',
         print (f"Episode {episode} reward: {episode_reward}")
         with writer.as_default ():
             tf.summary.scalar ("episode_reward", episode_reward, episode)
+            tf.summary.scalar ("actor_loss", np.mean(np.array(al_log)), agent.epoch_step)
+            tf.summary.scalar ("critic1_loss", np.mean(np.array(cl_log)), agent.epoch_step)
 

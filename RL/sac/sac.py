@@ -23,6 +23,7 @@ class Actor(Model):
         self.mean_layer = layers.Dense(self.action_dim)
         self.stdev_layer = layers.Dense(self.action_dim)
 
+    @tf.function
     def call(self, state):
         # Get mean and standard deviation from the policy network
         a1 = self.dense1_layer(state)
@@ -50,21 +51,20 @@ class Actor(Model):
         log_pi = log_pi_ - tf.reduce_sum(tf.math.log(1 - action**2 + EPSILON), axis=1,
                                          keepdims=True)
 
-        if tf.math.is_nan (action[0]):
-            print(state)
-            print(tf.reduce_sum(state))
-
-            print(tf.reduce_sum(a1))
-            print (tf.reduce_sum (a2))
-            print (tf.reduce_sum (mu))
-            print (tf.reduce_sum (log_sigma))
-            print(tf.reduce_sum(sigma))
-            print (tf.reduce_sum (action_))
-            print (action)
-            print (tf.reduce_sum (log_pi))
-            print(self.trainable_variables)
-            raise Exception("NAN")
-
+        # if tf.math.is_nan (action[0]):
+        #     print(state)
+        #     print(tf.reduce_sum(state))
+        #
+        #     print(tf.reduce_sum(a1))
+        #     print (tf.reduce_sum (a2))
+        #     print (tf.reduce_sum (mu))
+        #     print (tf.reduce_sum (log_sigma))
+        #     print(tf.reduce_sum(sigma))
+        #     print (tf.reduce_sum (action_))
+        #     print (action)
+        #     print (tf.reduce_sum (log_pi))
+        #     print(self.trainable_variables)
+        #     raise Exception("NAN")
 
         return action, log_pi
 
@@ -83,6 +83,7 @@ class Critic(Model):
         self.dense2_layer = layers.Dense(32, activation=tf.nn.relu)
         self.output_layer = layers.Dense(1)
 
+    @tf.function
     def call(self, state, action):
         state_action = tf.concat([state, action], axis=1)
         a1 = self.dense1_layer(state_action)
@@ -99,7 +100,7 @@ class Critic(Model):
 
 class SoftActorCritic(tf.Module):
 
-    def __init__(self, memory, action_space, obs_shape, writer, epoch_step=1, learning_rate=0.0003,
+    def __init__(self, memory, action_space, obs_shape, writer, epoch_step=1, learning_rate=0.0003, batch_size=128,
                  alpha=0.2, gamma=0.99, obs_range=(-5., 5.), return_range=(-5000.0, 5000.0),
                 polyak=0.995, norm_obs=True):
         self.policy = Actor(action_space)
@@ -107,6 +108,7 @@ class SoftActorCritic(tf.Module):
         self.q2 = Critic()
         self.target_q1 = Critic()
         self.target_q2 = Critic()
+        self.batch_size = batch_size
 
         self.writer = writer
         self.epoch_step = epoch_step
@@ -141,21 +143,21 @@ class SoftActorCritic(tf.Module):
         if self.norm_obs:
             self.obs_rms.update(np.array([obs0]))
 
-
-    def sample_action(self, obs):
+    @tf.function
+    def step(self, obs):
+        # tf.constant(obs, dtype=tf.float32)
         normalized_obs = tf.clip_by_value (normalize (obs, self.obs_rms), self.obs_range[0], self.obs_range[1])
-        normalized_obs_ = np.array(normalized_obs, ndmin=2)
+        normalized_obs = tf.reshape(normalized_obs, [1, -1])
 
-        action, _ = self.policy(normalized_obs_)
+        action, _ = self.policy(normalized_obs)
         return action[0]
 
-
+    @tf.function
     def update_q_network(self, current_states, actions, rewards, next_states, ends):
 
         with tf.GradientTape() as tape1:
             # Get Q value estimates, action used here is from the replay buffer
             q1 = self.q1(current_states, actions)
-
             # Sample actions from the policy for next states
             pi_a, log_pi_a = self.policy(next_states)
 
@@ -212,6 +214,7 @@ class SoftActorCritic(tf.Module):
 
         return critic1_loss, critic2_loss
 
+    @tf.function
     def update_policy_network(self, current_states):
         with tf.GradientTape() as tape:
             # Sample actions from the policy for current states
@@ -233,24 +236,24 @@ class SoftActorCritic(tf.Module):
         grads = tape.gradient(actor_loss, variables)
         self.actor_optimizer.apply_gradients(zip(grads, variables))
 
-        if  tf.math.is_nan (tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables])):
-            print(tf.reduce_sum(current_states))
-            print(1, current_states)
-            print(2, grads)
-
-            # print()
-            #
-
-            raise Exception("dsdsdds")
-
-        with self.writer.as_default():
-            for grad, var in zip(grads, variables):
-                tf.summary.histogram(f"grad-{var.name}", grad, self.epoch_step)
-                tf.summary.histogram(f"var-{var.name}", var, self.epoch_step)
+        # if  tf.math.is_nan (tf.reduce_sum([tf.reduce_sum(x) for x in self.policy.trainable_variables])):
+        #     print(tf.reduce_sum(current_states))
+        #     print(1, current_states)
+        #     print(2, grads)
+        #
+        #     # print()
+        #     #
+        #
+        #     raise Exception("dsdsdds")
+        #
+        # with self.writer.as_default():
+        #     for grad, var in zip(grads, variables):
+        #         tf.summary.histogram(f"grad-{var.name}", grad, self.epoch_step)
+        #         tf.summary.histogram(f"var-{var.name}", var, self.epoch_step)
 
         return actor_loss
 
-
+    @tf.function
     def update_alpha(self, current_states):
         with tf.GradientTape() as tape:
             # Sample actions from the policy for current states
@@ -271,20 +274,21 @@ class SoftActorCritic(tf.Module):
         return alpha_loss
 
 
-    def train(self, current_states, actions, rewards, next_states, ends):
+    def train(self):
 
-        current_states = tf.clip_by_value (normalize (current_states, self.obs_rms), self.obs_range[0], self.obs_range[1])
-        current_states = np.array(current_states, ndmin=2)
-        next_states = tf.clip_by_value(normalize(next_states, self.obs_rms), self.obs_range[0], self.obs_range[1])
-        next_states = np.array(next_states, ndmin=2)
+        obs0, actions, rewards, obs1, ends = self.memory.fetch_sample(batch_size=self.batch_size)
+        obs0 = tf.clip_by_value(normalize(obs0, self.obs_rms), self.obs_range[0], self.obs_range[1])
+        obs1 = tf.clip_by_value(normalize(obs0, self.obs_rms), self.obs_range[0], self.obs_range[1])
+
+        obs0, obs1 = tf.constant(obs0), tf.constant(obs1)
+        actions, rewards, ends = tf.constant(actions), tf.constant(rewards), tf.constant(ends, dtype=tf.float32)
 
         # Update Q network weights
-        critic1_loss, critic2_loss = self.update_q_network(current_states, actions, rewards, next_states, ends)
+        critic1_loss, critic2_loss = self.update_q_network(obs0, actions, rewards, obs1, ends)
 
         # Update policy network weights
-        actor_loss = self.update_policy_network(current_states)
-
-        alpha_loss = self.update_alpha(current_states)
+        actor_loss = self.update_policy_network(obs0)
+        alpha_loss = self.update_alpha(obs0)
 
         # Update target Q network weights
         #self.update_weights()
@@ -295,6 +299,7 @@ class SoftActorCritic(tf.Module):
 
         return critic1_loss, critic2_loss, actor_loss, alpha_loss
 
+    # @tf.function
     def update_weights(self):
 
         for theta_target, theta in zip(self.target_q1.trainable_variables,

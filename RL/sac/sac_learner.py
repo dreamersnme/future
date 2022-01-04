@@ -17,7 +17,7 @@ def learn(env,
           polyak=0.995,
           nb_epochs=10000,
           noise_rt = 0.1,
-          train_steps =1000,
+          train_steps =500,
           batch_size = 128,
           render=True,
           log_dir='./sac_log/',
@@ -37,7 +37,7 @@ def learn(env,
     memory=Memory (limit=int (1e6), action_shape=action_shape, observation_shape=state_shape)
 
     agent = SoftActorCritic (memory, action_space, state_shape, writer,
-                           learning_rate=lr,
+                           learning_rate=lr,batch_size=batch_size,
                            gamma=gamma, polyak=polyak)
 
     MANAGER = AgentManager (agent, log_dir, log_dir)
@@ -53,11 +53,16 @@ def learn(env,
         episode_reward = 0
         done = False
         clock = time.time()
-        print(current_state)
+
 
         while not done:
-            action = agent.sample_action (current_state) if np.random.uniform () < noise_rt else env.action_space.sample ()
-            next_state, reward, done, _ = env.step(action)
+            action = agent.step (tf.constant(current_state, dtype=tf.float32)) if np.random.uniform () < noise_rt else env.action_space.sample ()
+            try:
+                next_state, reward, done, _ = env.step(action)
+            except:
+                print(current_state)
+                print(action)
+                raise Exception
 
             episode_reward += reward
             end = 0 if done else 1
@@ -70,20 +75,35 @@ def learn(env,
         if render: env.render ()
 
         clock = time.time()
+        ttt = 0
+        www = 0
+
+        al=[]
+        cl1=[]
+        cl2=[]
+        apl=[]
         for epoch in range (train_steps):
             # Randomly sample minibatch of transitions from replay buffer
-            current_states, actions, rewards, next_states, ends = memory.fetch_sample (batch_size=batch_size)
-            critic1_loss, critic2_loss, actor_loss, alpha_loss = agent.train (current_states, actions, rewards, next_states, ends)
+            st = time.time()
+            critic1_loss, critic2_loss, actor_loss, alpha_loss = agent.train ()
+            ttt += (time.time()-st)
 
-            with writer.as_default ():
-                tf.summary.scalar ("actor_loss", actor_loss, agent.epoch_step)
-                tf.summary.scalar ("critic1_loss", critic1_loss, agent.epoch_step)
-                tf.summary.scalar ("critic2_loss", critic2_loss, agent.epoch_step)
-                tf.summary.scalar ("alpha_loss", alpha_loss, agent.epoch_step)
+            st = time.time()
+            al.append(actor_loss)
+            cl1.append(critic1_loss)
+            cl2.append(critic2_loss)
+            apl.append(alpha_loss)
 
+            # with writer.as_default ():
+            #     tf.summary.scalar ("actor_loss", actor_loss, agent.epoch_step)
+            #     tf.summary.scalar ("critic1_loss", critic1_loss, agent.epoch_step)
+            #     tf.summary.scalar ("critic2_loss", critic2_loss, agent.epoch_step)
+            #     tf.summary.scalar ("alpha_loss", alpha_loss, agent.epoch_step)
+
+
+            www += (time.time() - st)
             agent.epoch_step += 1
             agent.update_weights ()
-
 
 
         T_TM = int(time.time() - clock)
@@ -91,7 +111,11 @@ def learn(env,
 
         print("=====================================")
         print(f"sampling {S_TM} train: {T_TM}")
+        print(f"ttt {ttt} www: {www}")
         print (f"Episode {episode} reward: {episode_reward}")
         with writer.as_default ():
             tf.summary.scalar ("episode_reward", episode_reward, episode)
-
+            tf.summary.scalar ("actor_loss", np.mean(np.array(al)), agent.epoch_step)
+            tf.summary.scalar ("critic1_loss", np.mean(np.array(cl1)), agent.epoch_step)
+            tf.summary.scalar ("critic2_loss", np.mean(np.array(cl2)), agent.epoch_step)
+            tf.summary.scalar ("alpha_loss", np.mean(np.array(apl)), agent.epoch_step)
