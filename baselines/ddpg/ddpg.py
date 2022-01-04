@@ -147,7 +147,6 @@ def learn(network, env,
                 epoch_actions.append(action[0])
                 epoch_qs.append(q[0])
 
-
                 agent.store_transition(obs, action, r, new_obs, done) #the batched data will be unrolled in memory.py's append.
                 obs = new_obs
                 check_NAN ([action, q, obs])

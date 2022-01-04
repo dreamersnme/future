@@ -2,7 +2,6 @@ from functools import reduce
 
 import numpy as np
 import tensorflow as tf
-tf.keras.backend.set_floatx('float32')
 from RL.agent_utils import *
 from baselines import logger
 from RL.ddpg.models import Actor, Critic
@@ -172,10 +171,11 @@ class DDPG(tf.Module):
             assert M.get_shape()[-1] == 1
             assert b.get_shape()[-1] == 1
 
-    # @tf.function
+    @tf.function
     def step(self, obs, apply_noise=True, compute_Q=True):
         normalized_obs = tf.clip_by_value(normalize(obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
-        normalized_obs = np.array(normalized_obs, ndmin=2)
+        normalized_obs = tf.reshape(normalized_obs, [1, -1])
+
         actor_tf = self.actor(normalized_obs)
         if self.param_noise is not None and apply_noise:
             action = self.perturbed_actor(normalized_obs)
@@ -343,10 +343,8 @@ class DDPG(tf.Module):
 
     def adapt_param_noise(self, obs0):
 
-
         if self.param_noise is None:
             return 0.
-
         mean_distance = self.get_mean_distance(obs0).numpy()
 
         self.param_noise.adapt(mean_distance)

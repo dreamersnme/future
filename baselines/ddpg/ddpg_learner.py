@@ -18,6 +18,7 @@ except ImportError:
 def normalize(x, stats):
     if stats is None:
         return x
+    print(type(stats.mean))
     return (x - stats.mean) / stats.std
 
 
@@ -201,7 +202,6 @@ class DDPG(tf.Module):
     def step(self, obs, apply_noise=True, compute_Q=True):
 
         normalized_obs = tf.clip_by_value(normalize(obs, self.obs_rms), self.observation_range[0], self.observation_range[1])
-        print(normalized_obs)
         actor_tf = self.actor(normalized_obs)
         if self.param_noise is not None and apply_noise:
             action = self.perturbed_actor(normalized_obs)

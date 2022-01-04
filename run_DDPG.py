@@ -6,7 +6,7 @@ import logging
 import numpy as np
 from datetime import datetime
 import tensorflow as tf
-tf.keras.backend.set_floatx('float32')
+# tf.keras.backend.set_floatx('float32')
 from gym import register
 
 from RL.cmd_util import make_vec_env

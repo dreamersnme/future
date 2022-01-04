@@ -273,6 +273,8 @@ class StarTradingEnv(gym.Env):
 
 
     def step_done(self, actions):
+        self.step_normal(0) #clear_all
+
         print ("@@@@@@@@@@@@@@@@@")
         print ("Iteration", self.iteration - 1)
 
@@ -295,8 +297,10 @@ class StarTradingEnv(gym.Env):
         print("Acc: {}, Rwd: {}, Neg: {}".format(total_asset, total_reward,total_neg))
 
         risk_log = -1 * total_neg/ np.sum(self.total_pos)
-
         return self.state, self.reward, self.done, {"log": trading_book, 'risk':risk_log, 'pos': self.total_pos, 'neg': -1*self.total_neg}
+
+    def clear_all(self):
+        self._trade(0)
 
     def step(self, actions):
         self.done = self.day >= END_TRAIN
@@ -323,7 +327,7 @@ class StarTradingEnv(gym.Env):
         total_asset_starting = self.state[0] + pre_unrealized_pnl
 
         try:
-            position = self._trade ( action)
+            position = self._trade (action)
         except Exception as e:
             print(action)
             print (self.state)
@@ -419,7 +423,7 @@ class StarTradingEnv(gym.Env):
     def render(self, mode='human'):
         self.plot_fig.update(iteration=self.iteration-1, idx=range(len(self.position_log)), pos=self.total_pos, neg= -self.total_neg,
                              cash=self.acc_balance, unreal=self.unrealized_asset, asset=self.total_asset,
-                             reward=self.reward_log, position=self.position_log, unit=self.unit_log)
+                             reward=self.reward_log.cumsum(), position=self.position_log, unit=self.unit_log)
         return self.state
 
     def _seed(self, seed=None):

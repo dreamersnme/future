@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 
 import tensorflow as tf
@@ -23,6 +24,7 @@ def learn(env,
           summary_dir ='./summary/sac'):
 
     os.makedirs (log_dir, exist_ok=True)
+    shutil.rmtree(summary_dir, ignore_errors=True)
     os.makedirs (summary_dir, exist_ok=True)
 
     writer = tf.summary.create_file_writer(summary_dir, filename_suffix=None)

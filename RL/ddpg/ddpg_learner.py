@@ -1,5 +1,5 @@
 import os
-
+import shutil
 
 from RL.agent_load_manager import AgentManager
 from RL.ddpg.ddpg import DDPG
@@ -9,7 +9,6 @@ from RL.ddpg.noise import AdaptiveParamNoiseSpec, NormalActionNoise, OrnsteinUhl
 
 from baselines import logger
 import tensorflow as tf
-tf.keras.backend.set_floatx('float32')
 from baselines.ddpg.things import *
 
 
@@ -43,7 +42,7 @@ def learn(env, network='mlp',
           nb_epochs=10000,  # with default settings, perform 1M steps total
           nb_rollout_steps=100,
           reward_scale=1.0,
-          render=False,
+          render=True,
           render_eval=False,
           noise_type='adaptive-param_0.2',
           normalize_returns=False,
@@ -54,7 +53,7 @@ def learn(env, network='mlp',
           popart=False,
           gamma=0.99,
           clip_norm=None,
-          nb_train_steps=50,  # per epoch cycle and MPI worker,
+          nb_train_steps=1000,  # per epoch cycle and MPI worker,
           nb_eval_steps=50,
           batch_size=128,  # per MPI worker
           tau=0.01,
@@ -63,6 +62,7 @@ def learn(env, network='mlp',
           summary_dir='./summary/ddpg'):
 
     os.makedirs (log_dir, exist_ok=True)
+    shutil.rmtree(summary_dir, ignore_errors=True)
     os.makedirs (summary_dir, exist_ok=True)
 
     writer = tf.summary.create_file_writer(summary_dir, filename_suffix=None)
@@ -88,46 +88,39 @@ def learn(env, network='mlp',
     # Prepare everything.
     agent.initialize()
     agent.reset()
-    obs = env.reset()
-
 
     total_step = 0
     for episode in range(nb_epochs):
+        obs = env.reset()
         episode += 1
         episode_reward = 0
-
-
-
         done = False
         clock = time.time()
         while not done:
             total_step += 1
             # Predict next action.
-            action, q, _, _ = agent.step(tf.constant(obs), apply_noise=True, compute_Q=True)
+            action, q, _, _ = agent.step(tf.constant(obs, dtype=tf.float32), apply_noise=True, compute_Q=True)
             action, q = action.numpy(), q.numpy()
             # max_action is of dimension A, whereas action is dimension (nenvs, A) - the multiplication gets broadcasted to the batch
 
             new_obs, r, done, info = env.step(action)  # scale for execution in env (as far as DDPG is concerned, every action is in [-1, 1])
-            if render: env.render()
-
             episode_reward += r
             agent.store_transition(obs, action, r, new_obs,done)  # the batched data will be unrolled in memory.py's append.
             obs = new_obs
 
         agent.reset()
         # Train.
-
         S_TM = int(time.time() - clock)
         if render: env.render ()
 
         clock = time.time()
+
         for t_train in range(nb_train_steps):
             # Adapt param noise, if necessary.
             if memory.nb_entries >= batch_size and t_train % param_noise_adaption_interval == 0:
                 obs0, actions, rewards, obs1, ends = memory.fetch_sample(batch_size=batch_size)
                 obs0 = tf.constant(obs0)
                 distance = agent.adapt_param_noise(obs0)
-
 
             cl, al = agent.train()
             agent.update_target_net()

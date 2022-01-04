@@ -1,6 +1,4 @@
 def normalize(x, stats):
-    print(type(x))
-    print(type(stats))
     if stats is None:
         return x
     return (x - stats.mean) / stats.std
